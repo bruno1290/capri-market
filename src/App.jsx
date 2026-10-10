@@ -202,10 +202,9 @@ function NavCategories({ currentPage, onNavigate }) {
   const items = [
     { key: 'markets', label: '🔥 Tendencia', icon: null },
     { key: 'acciones', label: '📈 Acciones', icon: null },
+    { key: 'markets', label: '🎂 Cumple Gaspar', icon: null },
     { key: 'markets', label: 'Fiesta', icon: null },
-    { key: 'markets', label: 'Salseo', icon: null },
-    { key: 'markets', label: 'Random', icon: null },
-    { key: 'markets', label: 'Deportes', icon: null },
+    { key: 'markets', label: 'Salseo', icon: null }
   ];
 
   return (
@@ -226,12 +225,11 @@ function NavCategories({ currentPage, onNavigate }) {
 /* ── Sidebar (Markets page) ─────────────────────────────── */
 function Sidebar() {
   const items = [
-    { name: "Todos los mercados", count: 24 },
-    { name: "Fiesta", count: 8 },
-    { name: "Salseo", count: 5 },
-    { name: "Puntualidad", count: 3 },
-    { name: "Deportes", count: 2 },
-    { name: "Random", count: 6 },
+    { name: "Todos los mercados", count: 11 },
+    { name: "Cumple Gaspar", count: 2 },
+    { name: "Salseo", count: 6 },
+    { name: "Fiesta", count: 2 },
+    { name: "Tendencia", count: 1 }
   ];
   return (
     <aside className="sidebar">
@@ -315,7 +313,7 @@ function FeaturedCard({ stock, onVote }) {
         <span className="featured-leverage">{stock.leverage}x</span>
       </div>
       <button className="btn-vote-stock" onClick={() => onVote(stock.id)}>
-        <ChevronUp size={14} /> Votar · $1
+        <ChevronUp size={14} /> Votar
       </button>
     </div>
   );
@@ -360,7 +358,7 @@ function AccionesPage() {
   useEffect(() => { saveStocks('capri-hoes', hoes); }, [hoes]);
 
   const handleVote = (id) => {
-    if (!spend(COST_PER_VOTE)) return; // no budget
+    // Votos en acciones son gratis, no gastan presupuesto.
     const updateList = (list) =>
       list.map(s => {
         if (s.id !== id) return s;
