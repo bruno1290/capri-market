@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
+import { supabase } from './supabase';
 import './index.css';
 
 ChartJS.register(
@@ -347,28 +348,45 @@ function StockRow({ stock, rank, onVote }) {
 }
 
 /* ── Acciones Page ──────────────────────────────────────── */
-function AccionesPage() {
-  const { session, spend } = useSession();
+function AccionesPage({ votes, setVotes }) {
+  const { session } = useSession();
   const [activeTab, setActiveTab] = useState('discover');
-  const [bros, setBros] = useState(() => loadStocks('capri-bros', BROS));
-  const [hoes, setHoes] = useState(() => loadStocks('capri-hoes', HOES));
 
-  // Persist stocks
-  useEffect(() => { saveStocks('capri-bros', bros); }, [bros]);
-  useEffect(() => { saveStocks('capri-hoes', hoes); }, [hoes]);
+  // Compute bros and hoes from INITIAL data and votes
+  const { bros, hoes } = useMemo(() => {
+    const baseBros = JSON.parse(JSON.stringify(BROS));
+    const baseHoes = JSON.parse(JSON.stringify(HOES));
+    
+    const stockVotes = votes.filter(v => v.vote_type === 'stock');
+    stockVotes.forEach(vote => {
+      const list = vote.target_id.startsWith('bro') ? baseBros : baseHoes;
+      const s = list.find(x => x.id === vote.target_id);
+      if (s) {
+        const bump = +(s.price * 0.012).toFixed(2);
+        s.price = +(s.price + bump).toFixed(2);
+        s.change = +(s.change + 1.2).toFixed(2);
+        s.votes += 1;
+        s.sparkline.push(s.price);
+        s.sparkline.shift();
+      }
+    });
+    return { bros: baseBros, hoes: baseHoes };
+  }, [votes]);
 
   const handleVote = (id) => {
     // Votos en acciones son gratis, no gastan presupuesto.
-    const updateList = (list) =>
-      list.map(s => {
-        if (s.id !== id) return s;
-        const bump = +(s.price * 0.012).toFixed(2);
-        const newPrice = +(s.price + bump).toFixed(2);
-        const newChange = +(s.change + 1.2).toFixed(2);
-        return { ...s, price: newPrice, change: newChange, votes: s.votes + 1, sparkline: [...s.sparkline.slice(1), newPrice] };
-      });
-    setBros(updateList);
-    setHoes(updateList);
+    const newVote = {
+      id: crypto.randomUUID(),
+      vote_type: 'stock',
+      target_id: String(id),
+      option_name: null,
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
+    setVotes(prev => [...prev, newVote]);
+    supabase.from('votes').insert(newVote).then(({error}) => {
+      if (error) console.error("Error voting stock:", error);
+    });
   };
 
   const allStocks = useMemo(() => [...bros, ...hoes], [bros, hoes]);
@@ -726,13 +744,47 @@ function Toast({ message, type, onDone }) {
 /* ── App ────────────────────────────────────────────────── */
 function App() {
   const [session, setSession] = useState(() => loadSession());
-  const [markets, setMarkets] = useState(() => loadMarkets());
+  const [votes, setVotes] = useState([]);
+  const [markets, setMarkets] = useState(INITIAL_MARKETS);
   const [selectedMarket, setSelectedMarket] = useState(null);
   const [currentPage, setCurrentPage] = useState('markets');
   const [toast, setToast] = useState(null);
 
-  // Persist markets
-  useEffect(() => { saveMarkets(markets); }, [markets]);
+  useEffect(() => {
+    supabase.from('votes').select('*').order('created_at', { ascending: true }).then(({ data }) => {
+      if (data) setVotes(data);
+    });
+
+    const channel = supabase.channel('realtime-votes')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'votes' }, (payload) => {
+        setVotes(prev => prev.some(v => v.id === payload.new.id) ? prev : [...prev, payload.new]);
+      }).subscribe();
+    return () => supabase.removeChannel(channel);
+  }, []);
+
+  useEffect(() => {
+    const baseMarkets = JSON.parse(JSON.stringify(INITIAL_MARKETS));
+    votes.filter(v => v.vote_type === 'market').forEach(vote => {
+      const m = baseMarkets.find(x => String(x.id) === String(vote.target_id));
+      if (m) {
+        const opt = m.options.find(o => o.name === vote.option_name);
+        if (opt) {
+          opt.shares += 10;
+          const newCalculated = calculateOdds(m.options);
+          const dateObj = new Date(vote.created_at);
+          const newDataPoint = { label: dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), data: {} };
+          newCalculated.forEach(o => newDataPoint.data[o.name] = Math.round(o.prob * 100));
+          m.history.push(newDataPoint);
+          if (m.history.length > 20) m.history.shift();
+        }
+      }
+    });
+    setMarkets(baseMarkets);
+    if (selectedMarket) {
+      const updated = baseMarkets.find(m => m.id === selectedMarket.id);
+      if (updated) setSelectedMarket(updated);
+    }
+  }, [votes, selectedMarket]);
 
   const handleLogin = useCallback((name) => {
     const newSession = { name, day: getTodayKey(), spent: 0 };
@@ -767,44 +819,20 @@ function App() {
   const handleVote = useCallback((marketId, optionName) => {
     if (!spend(COST_PER_VOTE)) return;
     
-    setMarkets(prev => prev.map(m => {
-      if (m.id === marketId) {
-        // Update the shares for the voted option
-        const newOptions = m.options.map(opt =>
-          opt.name === optionName ? { ...opt, shares: opt.shares + 10 } : opt
-        );
-        
-        // Calculate the NEW probabilities so we can add them to the chart history
-        const newCalculated = calculateOdds(newOptions);
-        const newDataPoint = { label: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), data: {} };
-        newCalculated.forEach(opt => {
-          newDataPoint.data[opt.name] = Math.round(opt.prob * 100);
-        });
-        
-        // Append this new point to history (keeping max 20 points so it doesn't get infinitely long)
-        const newHistory = [...m.history, newDataPoint].slice(-20);
+    const newVote = {
+      id: crypto.randomUUID(),
+      vote_type: 'market',
+      target_id: String(marketId),
+      option_name: optionName,
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
 
-        return { ...m, options: newOptions, history: newHistory };
-      }
-      return m;
-    }));
-
-    if (selectedMarket && selectedMarket.id === marketId) {
-      setSelectedMarket(prev => {
-        const newOptions = prev.options.map(opt =>
-          opt.name === optionName ? { ...opt, shares: opt.shares + 10 } : opt
-        );
-        const newCalculated = calculateOdds(newOptions);
-        const newDataPoint = { label: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), data: {} };
-        newCalculated.forEach(opt => {
-          newDataPoint.data[opt.name] = Math.round(opt.prob * 100);
-        });
-        const newHistory = [...prev.history, newDataPoint].slice(-20);
-        
-        return { ...prev, options: newOptions, history: newHistory };
-      });
-    }
-  }, [spend, selectedMarket]);
+    setVotes(prev => [...prev, newVote]);
+    supabase.from('votes').insert(newVote).then(({error}) => {
+      if (error) console.error(error);
+    });
+  }, [session, spend]);
 
   const handleNavigate = (page) => {
     setCurrentPage(page);
@@ -825,7 +853,7 @@ function App() {
         <NavCategories currentPage={currentPage} onNavigate={handleNavigate} />
 
         {currentPage === 'acciones' ? (
-          <AccionesPage />
+          <AccionesPage votes={votes} setVotes={setVotes} />
         ) : (
           <main className="main-layout">
             <Sidebar />
