@@ -66,9 +66,9 @@ function generateMarketHistory(options, seed, days = 7) {
 export const INITIAL_MARKETS = [
   {
     id: 1,
-    title: "¿Quién se la come más en los 5 años?",
+    title: "¿Quién come más en los 5 años?",
     category: "Tendencia",
-    emoji: "👑",
+    emoji: "🍔",
     volume: "$24.5K Vol.",
     endDate: "17 de Octubre",
     options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 100) + 10 }))
