@@ -83,27 +83,6 @@ export const INITIAL_MARKETS = [
     options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 100) + 10 }))
   },
   {
-    id: 3,
-    title: "¿El más borrado en el cumple de Gaspar?",
-    category: "Cumple Gaspar",
-    emoji: "🎂",
-    volume: "$10.1K Vol.",
-    endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 80) + 5 }))
-  },
-  {
-    id: 4,
-    title: "¿Si Gaspar se va de guaja en su cumple?",
-    category: "Cumple Gaspar",
-    emoji: "🤮",
-    volume: "$8.9K Vol.",
-    endDate: "17 de Octubre",
-    options: [
-      { name: "Sí, de guaja", shares: 150 },
-      { name: "Sobrevive", shares: 45 }
-    ]
-  },
-  {
     id: 5,
     title: "¿Quién se come a AC?",
     category: "Salseo",
@@ -193,7 +172,7 @@ function generateSparkline(base, seed) {
 }
 
 export const BROS = FRIENDS.map((name, idx) => {
-  const base = +(500 + (idx * 317 + 73) % 9500).toFixed(2);
+  const base = +(14 + (idx * 3.7 + 5) % 15).toFixed(2);
   const spark = generateSparkline(base, idx * 7 + 3);
   const last = spark[spark.length - 1];
   const change = +(((last - base) / base) * 100).toFixed(2);
@@ -201,39 +180,43 @@ export const BROS = FRIENDS.map((name, idx) => {
     id: `bro-${idx}`,
     ticker: name.split(" ")[0].toUpperCase().slice(0, 4),
     name,
+    basePrice: base,
     price: last,
     change,
-    leverage: [10, 20, 50][idx % 3],
+    leverage: [10, 20, 25][idx % 3],
     sparkline: spark,
-    votes: Math.floor(50 + (idx * 41 + 17) % 200),
-    emoji: "🧑‍🤝‍🧑"
+    votes: 0,
+    emoji: "🧑‍🤝‍🧑",
+    type: 'bro'
   };
 });
 
 export const HOES_FULL = [
-  { initials: "AY", emoji: "💜" },
-  { initials: "AC", emoji: "🔥" },
-  { initials: "LB", emoji: "💅" },
-  { initials: "SB", emoji: "✨" },
-  { initials: "MO", emoji: "🌹" },
-  { initials: "NB", emoji: "💎" },
-  { initials: "FM", emoji: "🦋" }
+  { initials: "AY", name: "AY", emoji: "💜" },
+  { initials: "AC", name: "AC", emoji: "🔥" },
+  { initials: "LB", name: "LB", emoji: "💅" },
+  { initials: "SB", name: "SB", emoji: "✨" },
+  { initials: "MO", name: "MO", emoji: "🌹" },
+  { initials: "NB", name: "NB", emoji: "💎" },
+  { initials: "FM", name: "FM", emoji: "🦋" }
 ];
 
 export const HOES = HOES_FULL.map((h, idx) => {
-  const base = +(200 + (idx * 523 + 19) % 4800).toFixed(2);
+  const base = +(11 + (idx * 4.1 + 3) % 14).toFixed(2);
   const spark = generateSparkline(base, idx * 13 + 11);
   const last = spark[spark.length - 1];
   const change = +(((last - base) / base) * 100).toFixed(2);
   return {
     id: `hoe-${idx}`,
     ticker: h.initials,
-    name: h.initials,
+    name: h.name,
+    basePrice: base,
     price: last,
     change,
-    leverage: [20, 50][idx % 2],
+    leverage: [25, 50][idx % 2],
     sparkline: spark,
-    votes: Math.floor(80 + (idx * 67 + 31) % 300),
-    emoji: h.emoji
+    votes: 0,
+    emoji: h.emoji,
+    type: 'hoe'
   };
 });

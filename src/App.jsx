@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, createContext, useContext } from 'react';
-import { Search, TrendingUp, Clock, BarChart2, MessageCircle, Gift, Bookmark, ArrowLeft, Star, ChevronUp, ChevronDown, Zap, Users, Heart, DollarSign, LogOut, User, Plus, PlusCircle, X, Sparkles } from 'lucide-react';
+import { Search, TrendingUp, TrendingDown, Clock, BarChart2, MessageCircle, Gift, Bookmark, ArrowLeft, Star, ChevronUp, ChevronDown, Zap, Users, Heart, DollarSign, LogOut, User, Plus, PlusCircle, X, Sparkles, Briefcase, Award } from 'lucide-react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -13,6 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
+import { computeMarketEngine, STARTING_CASH, COST_PER_VOTE } from './marketEngine';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -30,13 +31,10 @@ ChartJS.register(
 /* ═══════════════════════════════════════════════════════════
    USER SESSION SYSTEM
    - Each friend selects their name to "log in"
-   - $10 daily balance, resets each calendar day
+   - $100 starting capital for stocks & markets
    - Each vote costs $1
-   - Persisted in localStorage
+   - Real-time cloud sync via Supabase
    ═══════════════════════════════════════════════════════════ */
-
-const DAILY_BUDGET = 10;
-const COST_PER_VOTE = 1;
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
@@ -117,9 +115,9 @@ function LoginScreen({ onLogin }) {
           <TrendingUp size={36} color="#1d9bf0" />
           <h1>Capri Market</h1>
         </div>
-        <p className="login-subtitle">Selecciona tu nombre para entrar</p>
+        <p className="login-subtitle">Selecciona tu nombre para entrar al mercado</p>
         <p className="login-budget-info">
-          <DollarSign size={16} /> Recibes <strong>${DAILY_BUDGET}</strong> diarios para apostar
+          <DollarSign size={16} /> Recibes <strong>${STARTING_CASH}</strong> de capital para operar en bolsa y votar
         </p>
         <div className="login-grid">
           {FRIENDS.map((name) => (
@@ -173,9 +171,13 @@ function Sparkline({ data, color, width = 80, height = 32 }) {
 }
 
 /* ── Header ─────────────────────────────────────────────── */
-function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0 }) {
+function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0, userPortfolio }) {
   const { session, logout } = useSession();
-  const remaining = DAILY_BUDGET - session.spent;
+  const netWorth = userPortfolio?.netWorth ?? STARTING_CASH;
+  const cash = userPortfolio?.cash ?? STARTING_CASH;
+  const profit = userPortfolio?.totalProfit ?? 0;
+  const profitPercent = userPortfolio?.totalProfitPercent ?? 0;
+  const isUp = profit >= 0;
 
   return (
     <header className="header">
@@ -202,13 +204,26 @@ function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0 }
           </span>
         </button>
 
-        <div className="header-balance">
-          <DollarSign size={16} />
-          <span className={`balance-amount ${remaining <= 2 ? 'low' : ''}`}>
-            ${remaining.toFixed(0)}
-          </span>
-          <span className="balance-label">restantes hoy</span>
+        {/* Real Market Financial Badges */}
+        <div className="header-financials" title="Tu estado financiero en Capri Market">
+          <div className="financial-item">
+            <span className="financial-label">Patrimonio</span>
+            <span className="financial-value">${netWorth.toFixed(2)}</span>
+          </div>
+          <div className="financial-divider" />
+          <div className="financial-item">
+            <span className="financial-label">Rentabilidad</span>
+            <span className={`financial-value ${isUp ? 'up' : 'down'}`}>
+              {isUp ? '+' : ''}{profitPercent}%
+            </span>
+          </div>
+          <div className="financial-divider" />
+          <div className="financial-item">
+            <span className="financial-label">Efectivo</span>
+            <span className="financial-value">${cash.toFixed(2)}</span>
+          </div>
         </div>
+
         <div className="header-user">
           <div className="header-avatar">{session.name.charAt(0)}</div>
           <span className="header-username">{session.name}</span>
@@ -222,61 +237,79 @@ function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0 }
 }
 
 /* ── Nav ────────────────────────────────────────────────── */
-function NavCategories({ currentPage, onNavigate }) {
+function NavCategories({ currentPage, onNavigate, activeCategory, onSelectCategory }) {
   const items = [
-    { key: 'markets', label: '🔥 Tendencia', icon: null },
-    { key: 'acciones', label: '📈 Acciones', icon: null },
-    { key: 'markets', label: '🎂 Cumple Gaspar', icon: null },
-    { key: 'markets', label: 'Fiesta', icon: null },
-    { key: 'markets', label: 'Salseo', icon: null }
+    { key: 'markets', category: 'Todos', label: '🔥 Tendencia' },
+    { key: 'acciones', category: null, label: '📈 Bolsa (Bros & Hoes)' },
+    { key: 'markets', category: 'Fiesta', label: '🎉 Fiesta' },
+    { key: 'markets', category: 'Salseo', label: '😈 Salseo' },
+    { key: 'markets', category: 'Random', label: '🤔 Random' }
   ];
 
   return (
     <div className="nav-categories">
-      {items.map((item, i) => (
-        <div
-          key={i}
-          className={`nav-item ${(i === 0 && currentPage === 'markets') || (i === 1 && currentPage === 'acciones') ? 'active' : ''}`}
-          onClick={() => onNavigate(item.key)}
-        >
-          {item.label}
-        </div>
-      ))}
+      {items.map((item, i) => {
+        const isActive = (item.key === 'acciones' && currentPage === 'acciones') ||
+          (item.key === 'markets' && currentPage === 'markets' && (activeCategory === item.category || (!activeCategory && item.category === 'Todos')));
+        return (
+          <div
+            key={i}
+            className={`nav-item ${isActive ? 'active' : ''}`}
+            onClick={() => {
+              onNavigate(item.key);
+              if (item.category && onSelectCategory) {
+                onSelectCategory(item.category);
+              }
+            }}
+          >
+            {item.label}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 /* ── Sidebar (Markets page) ─────────────────────────────── */
-function Sidebar() {
+function Sidebar({ markets = [], activeCategory = 'Todos', onSelectCategory }) {
   const items = [
-    { name: "Todos los mercados", count: 11 },
-    { name: "Cumple Gaspar", count: 2 },
-    { name: "Salseo", count: 6 },
-    { name: "Fiesta", count: 2 },
-    { name: "Tendencia", count: 1 }
+    { name: "Todos los mercados", category: "Todos", count: markets.length },
+    { name: "Salseo", category: "Salseo", count: markets.filter(m => m.category === 'Salseo').length },
+    { name: "Fiesta", category: "Fiesta", count: markets.filter(m => m.category === 'Fiesta').length },
+    { name: "Tendencia", category: "Tendencia", count: markets.filter(m => m.category === 'Tendencia').length },
+    { name: "Random", category: "Random", count: markets.filter(m => m.category === 'Random').length }
   ];
   return (
     <aside className="sidebar">
       <div className="sidebar-menu">
-        {items.map((item, i) => (
-          <div key={i} className={`sidebar-item ${i === 0 ? 'active' : ''}`}>
-            <span>{item.name}</span>
-            <span className="sidebar-badge">{item.count}</span>
-          </div>
-        ))}
+        {items.map((item, i) => {
+          const isActive = activeCategory === item.category;
+          return (
+            <div 
+              key={i} 
+              className={`sidebar-item ${isActive ? 'active' : ''}`}
+              onClick={() => onSelectCategory && onSelectCategory(item.category)}
+            >
+              <span>{item.name}</span>
+              <span className="sidebar-badge">{item.count}</span>
+            </div>
+          );
+        })}
       </div>
     </aside>
   );
 }
 
 /* ── Acciones Sidebar ───────────────────────────────────── */
-function AccionesSidebar({ activeTab, onTabChange }) {
+function AccionesSidebar({ activeTab, onTabChange, portfolioCount = 0 }) {
   const items = [
     { key: 'discover', name: 'Descubrir', icon: <Zap size={16} /> },
+    { key: 'portfolio', name: 'Mi Cartera', icon: <Briefcase size={16} />, badge: portfolioCount > 0 ? portfolioCount : null },
+    { key: 'leaderboard', name: 'Wall St Capri', icon: <Award size={16} /> },
     { key: 'ranking', name: 'Clasificación', icon: <Star size={16} /> },
   ];
   const assets = [
-    { key: 'all', name: 'Todos los acti...', count: BROS.length + HOES.length },
+    { key: 'all', name: 'Todos los activos', count: BROS.length + HOES.length },
     { key: 'bros', name: 'Bros', count: BROS.length, icon: <Users size={16} /> },
     { key: 'hoes', name: 'Hoes', count: HOES.length, icon: <Heart size={16} /> },
   ];
@@ -291,6 +324,7 @@ function AccionesSidebar({ activeTab, onTabChange }) {
             onClick={() => onTabChange(item.key)}
           >
             <span className="flex-center">{item.icon} {item.name}</span>
+            {item.badge && <span className="sidebar-badge" style={{ background: '#22c55e', color: 'white' }}>{item.badge}</span>}
           </div>
         ))}
       </div>
@@ -313,15 +347,400 @@ function AccionesSidebar({ activeTab, onTabChange }) {
   );
 }
 
+/* ── Trade Modal (Terminal de Operaciones) ───────────────── */
+function TradeModal({ stock, userPortfolio, isOpen, onClose, onTrade }) {
+  const [action, setAction] = useState('BUY'); // 'BUY' | 'SELL'
+  const [amountStr, setAmountStr] = useState('10');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setAction('BUY');
+      setAmountStr('10');
+    }
+  }, [isOpen, stock]);
+
+  if (!isOpen || !stock) return null;
+
+  const currentPrice = stock.price;
+  const holding = userPortfolio?.positions?.find(p => p.stockId === stock.id) || null;
+  const ownedShares = holding ? holding.shares : 0;
+  const ownedValue = +(ownedShares * currentPrice).toFixed(2);
+  const availableCash = userPortfolio ? userPortfolio.cash : 0;
+
+  const numAmount = parseFloat(amountStr) || 0;
+  const estimatedShares = action === 'BUY'
+    ? (currentPrice > 0 ? +(numAmount / currentPrice).toFixed(4) : 0)
+    : (currentPrice > 0 ? Math.min(ownedShares, +(numAmount / currentPrice).toFixed(4)) : 0);
+
+  const isBuyValid = action === 'BUY' && numAmount > 0 && numAmount <= (availableCash + 0.001);
+  const isSellValid = action === 'SELL' && numAmount > 0 && numAmount <= (ownedValue + 0.05);
+  const isValid = action === 'BUY' ? isBuyValid : isSellValid;
+
+  const handleQuickChip = (val) => {
+    if (action === 'BUY') {
+      if (val === 'MAX') setAmountStr(String(Math.floor(availableCash)));
+      else setAmountStr(String(val));
+    } else {
+      if (val === 'ALL') setAmountStr(String(ownedValue));
+      else if (val === 'HALF') setAmountStr(String(+(ownedValue * 0.5).toFixed(2)));
+      else setAmountStr(String(Math.min(ownedValue, val)));
+    }
+  };
+
+  const handleConfirm = () => {
+    if (!isValid || submitting) return;
+    setSubmitting(true);
+    
+    const finalAmount = Math.min(numAmount, action === 'BUY' ? availableCash : ownedValue);
+    const finalShares = action === 'BUY' 
+      ? +(finalAmount / currentPrice).toFixed(4)
+      : (finalAmount >= ownedValue - 0.05 ? ownedShares : +(finalAmount / currentPrice).toFixed(4));
+
+    onTrade({
+      stockId: stock.id,
+      action,
+      amount: finalAmount,
+      shares: finalShares,
+      price: currentPrice
+    });
+
+    setSubmitting(false);
+    onClose();
+  };
+
+  return (
+    <div className="trade-modal-overlay" onClick={onClose}>
+      <div className="trade-modal-card" onClick={e => e.stopPropagation()}>
+        <div className="trade-modal-header">
+          <div className="trade-header-info">
+            <div className="trade-header-emoji">{stock.emoji}</div>
+            <div>
+              <div className="trade-header-title">
+                {stock.ticker} <span style={{ fontWeight: 400, color: 'var(--text-secondary)' }}>• {stock.name}</span>
+              </div>
+              <div className="trade-header-sub">
+                {stock.type === 'bro' ? 'Bro Asset' : 'Hoe Speculative Asset'} • {stock.leverage}x Apalancamiento
+              </div>
+            </div>
+          </div>
+          <button className="btn-close-modal" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="trade-tabs">
+          <button
+            className={`trade-tab-btn buy ${action === 'BUY' ? 'active' : ''}`}
+            onClick={() => { setAction('BUY'); setAmountStr('10'); }}
+          >
+            Comprar 🟢
+          </button>
+          <button
+            className={`trade-tab-btn sell ${action === 'SELL' ? 'active' : ''}`}
+            onClick={() => { setAction('SELL'); setAmountStr(ownedValue > 0 ? String(ownedValue) : '0'); }}
+          >
+            Vender 🔴 {ownedShares > 0 ? `(${ownedShares} acc)` : ''}
+          </button>
+        </div>
+
+        <div className="trade-modal-body">
+          <div className="trade-price-strip">
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>
+                Precio de Mercado
+              </div>
+              <div className="trade-current-price">
+                ${currentPrice.toFixed(2)}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span className={`featured-change ${stock.change >= 0 ? 'up' : 'down'}`} style={{ fontSize: 14 }}>
+                {stock.change >= 0 ? '+' : ''}{stock.change}%
+              </span>
+              <div style={{ marginTop: 2 }}>
+                <span className="trade-leverage-tag">
+                  <Zap size={11} /> {stock.leverage}x
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="trade-input-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 600 }}>
+              <span>{action === 'BUY' ? 'Monto a invertir' : 'Monto a retirar'}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>
+                {action === 'BUY' 
+                  ? `Disponible: $${availableCash.toFixed(2)}` 
+                  : `En cartera: $${ownedValue.toFixed(2)} (${ownedShares} acc)`}
+              </span>
+            </div>
+
+            <div className="trade-input-row">
+              <span className="trade-input-prefix">$</span>
+              <input
+                type="number"
+                step="any"
+                min="0"
+                className="trade-amount-input"
+                value={amountStr}
+                onChange={e => setAmountStr(e.target.value)}
+                placeholder="0.00"
+                autoFocus
+              />
+            </div>
+
+            <div className="trade-quick-chips">
+              {action === 'BUY' ? (
+                <>
+                  <button className="quick-chip" onClick={() => handleQuickChip(5)}>+$5</button>
+                  <button className="quick-chip" onClick={() => handleQuickChip(10)}>+$10</button>
+                  <button className="quick-chip" onClick={() => handleQuickChip(25)}>+$25</button>
+                  <button className="quick-chip" onClick={() => handleQuickChip('MAX')}>TODO (${Math.floor(availableCash)})</button>
+                </>
+              ) : (
+                <>
+                  <button className="quick-chip" onClick={() => handleQuickChip('HALF')}>50%</button>
+                  <button className="quick-chip" onClick={() => handleQuickChip('ALL')}>100% (Vender todo)</button>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div className="trade-details-panel">
+            <div className="trade-detail-row">
+              <span>Acciones a {action === 'BUY' ? 'recibir' : 'entregar'}:</span>
+              <span>{estimatedShares} {stock.ticker}</span>
+            </div>
+            <div className="trade-detail-row">
+              <span>Precio por acción:</span>
+              <span>${currentPrice.toFixed(2)}</span>
+            </div>
+            <div className="trade-detail-row">
+              <span>Nuevo saldo disponible:</span>
+              <span>
+                ${action === 'BUY' 
+                  ? Math.max(0, availableCash - numAmount).toFixed(2) 
+                  : (availableCash + numAmount).toFixed(2)}
+              </span>
+            </div>
+            {holding && action === 'SELL' && (
+              <div className="trade-detail-row">
+                <span>Rendimiento de tu posición:</span>
+                <span style={{ color: holding.pnl >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                  {holding.pnl >= 0 ? '+' : ''}${holding.pnl.toFixed(2)} ({holding.pnlPercent}%)
+                </span>
+              </div>
+            )}
+          </div>
+
+          <button
+            className={`btn-confirm-trade ${action === 'BUY' ? 'buy' : 'sell'}`}
+            disabled={!isValid || submitting}
+            onClick={handleConfirm}
+          >
+            {action === 'BUY' 
+              ? (numAmount > availableCash ? 'Saldo insuficiente' : `Comprar $${numAmount.toFixed(2)} de ${stock.ticker}`)
+              : (numAmount > ownedValue ? 'Supera tu cartera' : `Vender ${estimatedShares} acc ($${numAmount.toFixed(2)})`)}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── Portfolio Banner ───────────────────────────────────── */
+function PortfolioBanner({ userPortfolio, onTabChange }) {
+  const isUp = userPortfolio.totalProfit >= 0;
+  return (
+    <div className="portfolio-banner">
+      <div className="portfolio-stat">
+        <span className="portfolio-stat-label">Patrimonio Total</span>
+        <span className="portfolio-stat-value">${userPortfolio.netWorth.toFixed(2)}</span>
+        <span className={`portfolio-stat-sub ${isUp ? 'up' : 'down'}`}>
+          {isUp ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+          {isUp ? '+' : ''}${userPortfolio.totalProfit.toFixed(2)} ({isUp ? '+' : ''}{userPortfolio.totalProfitPercent}%)
+        </span>
+      </div>
+      <div className="portfolio-stat">
+        <span className="portfolio-stat-label">Efectivo Disponible</span>
+        <span className="portfolio-stat-value">${userPortfolio.cash.toFixed(2)}</span>
+        <span className="portfolio-stat-sub" style={{ color: '#94a3b8' }}>
+          Para operar o votar
+        </span>
+      </div>
+      <div className="portfolio-stat">
+        <span className="portfolio-stat-label">Invertido en Acciones</span>
+        <span className="portfolio-stat-value">${userPortfolio.stocksValue.toFixed(2)}</span>
+        <span className="portfolio-stat-sub" style={{ color: '#94a3b8' }}>
+          {userPortfolio.positions.length} posiciones abiertas
+        </span>
+      </div>
+      <div className="portfolio-stat" style={{ justifyContent: 'center' }}>
+        <button
+          className="btn-modal-submit"
+          style={{ padding: '8px 16px', fontSize: 13, alignSelf: 'flex-start' }}
+          onClick={() => onTabChange('portfolio')}
+        >
+          Ver Mi Cartera 💼
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── Portfolio View ─────────────────────────────────────── */
+function PortfolioView({ userPortfolio, onTradeClick, onExploreClick }) {
+  if (!userPortfolio.positions || userPortfolio.positions.length === 0) {
+    return (
+      <div style={{ textAlign: 'center', padding: '60px 20px', background: 'var(--card-bg)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-color)' }}>
+        <div style={{ fontSize: 48, marginBottom: 16 }}>💼</div>
+        <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Tu cartera está vacía</h3>
+        <p style={{ color: 'var(--text-secondary)', maxWidth: 460, margin: '0 auto 24px', fontSize: 14 }}>
+          Aún no has comprado acciones de Bros o Hoes. Utiliza tu saldo disponible de <strong>${userPortfolio.cash.toFixed(2)}</strong> para comprar antes de que las votaciones de los amigos hagan subir los precios.
+        </p>
+        <button className="btn-modal-submit" onClick={onExploreClick}>
+          Explorar y Operar Acciones 🚀
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <h3 className="subsection-title">Tus Posiciones Abiertas 📈</h3>
+      <div className="positions-grid">
+        {userPortfolio.positions.map(pos => {
+          const isUp = pos.pnl >= 0;
+          return (
+            <div key={pos.stockId} className="position-card">
+              <div className="position-header">
+                <div className="position-stock-title">
+                  <span style={{ fontSize: 24 }}>{pos.stock.emoji}</span>
+                  <div>
+                    <div>{pos.stock.ticker}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', fontWeight: 500 }}>{pos.stock.name}</div>
+                  </div>
+                </div>
+                <span className={`featured-change ${isUp ? 'up' : 'down'}`} style={{ fontSize: 14 }}>
+                  {isUp ? '+' : ''}${pos.pnl.toFixed(2)} ({isUp ? '+' : ''}{pos.pnlPercent}%)
+                </span>
+              </div>
+
+              <div className="position-metrics">
+                <div className="position-metric-item">
+                  <span className="position-metric-label">Acciones</span>
+                  <span className="position-metric-val">{pos.shares}</span>
+                </div>
+                <div className="position-metric-item">
+                  <span className="position-metric-label">Precio Actual</span>
+                  <span className="position-metric-val">${pos.stock.price.toFixed(2)}</span>
+                </div>
+                <div className="position-metric-item">
+                  <span className="position-metric-label">Precio Medio</span>
+                  <span className="position-metric-val">${pos.avgBuyPrice.toFixed(2)}</span>
+                </div>
+                <div className="position-metric-item">
+                  <span className="position-metric-label">Valor Total</span>
+                  <span className="position-metric-val" style={{ color: 'var(--accent-blue)' }}>${pos.currentValue.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <button
+                  className="btn-position-sell"
+                  onClick={() => onTradeClick(pos.stock, 'SELL')}
+                >
+                  Vender 🔴
+                </button>
+                <button
+                  className="btn-trade-stock"
+                  style={{ width: 'auto', padding: 8 }}
+                  onClick={() => onTradeClick(pos.stock, 'BUY')}
+                >
+                  Comprar más 🟢
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ── Leaderboard View (Wall Street Capri) ────────────────── */
+function LeaderboardView({ leaderboard, currentUserName }) {
+  return (
+    <div className="trader-leaderboard-card">
+      <div className="leaderboard-header">
+        <div className="leaderboard-title">
+          <span>🏆 Wall Street Capri — Ranking de Brokers</span>
+        </div>
+        <p className="leaderboard-subtitle">
+          Los amigos de Capri compiten por la mayor rentabilidad del mercado. ¡Compra y vende en el momento oportuno!
+        </p>
+      </div>
+      <div className="leaderboard-table">
+        <div className="leaderboard-row leaderboard-row-head">
+          <span>#</span>
+          <span>Amigo / Trader</span>
+          <span>Patrimonio</span>
+          <span>Rentabilidad (ROI)</span>
+          <span>Posiciones</span>
+        </div>
+        {leaderboard.map(trader => {
+          const isCurrentUser = trader.name === currentUserName;
+          const isUp = trader.totalProfit >= 0;
+          return (
+            <div key={trader.name} className={`leaderboard-row ${isCurrentUser ? 'current-user-row' : ''}`}>
+              <div className="trader-rank-cell">
+                {trader.badge} {trader.rank}
+              </div>
+              <div className="trader-identity">
+                <div className="trader-avatar-box">
+                  {trader.name.charAt(0)}
+                </div>
+                <div className="trader-name-box">
+                  <span className="trader-name">
+                    {trader.name} {isCurrentUser && '⭐ (Tú)'}
+                  </span>
+                  <span className="trader-tier-badge">
+                    {trader.tier}
+                  </span>
+                </div>
+              </div>
+              <div className="trader-networth">
+                ${trader.netWorth.toFixed(2)}
+              </div>
+              <div className={`trader-roi ${isUp ? 'up' : 'down'}`}>
+                {isUp ? '+' : ''}${trader.totalProfit.toFixed(2)} ({isUp ? '+' : ''}{trader.totalProfitPercent}%)
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+                {trader.positions.length} activo(s) • {trader.tradesCount} trades
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 /* ── Featured Stock Card (Destacados) ───────────────────── */
-function FeaturedCard({ stock, onVote }) {
+function FeaturedCard({ stock, onVote, onTrade, userHolding }) {
   const isUp = stock.change >= 0;
+  const sharesOwned = userHolding?.shares || 0;
+
   return (
     <div className={`featured-card ${isUp ? 'featured-up' : 'featured-down'}`}>
       <div className="featured-top">
         <div className="featured-badge">
           <span className="featured-emoji">{stock.emoji}</span>
           <span className="featured-ticker">{stock.ticker}</span>
+          {sharesOwned > 0 && (
+            <span className="holding-badge-pill">x{sharesOwned}</span>
+          )}
         </div>
         <Star size={18} className="featured-star" />
       </div>
@@ -330,40 +749,55 @@ function FeaturedCard({ stock, onVote }) {
         <Sparkline data={stock.sparkline} color={isUp ? '#00ba7c' : '#f91880'} width={120} height={48} />
       </div>
       <div className="featured-bottom">
-        <span className="featured-price">${stock.price.toLocaleString()}</span>
+        <span className="featured-price">${stock.price.toFixed(2)}</span>
         <span className={`featured-change ${isUp ? 'up' : 'down'}`}>
           {isUp ? '+' : ''}{stock.change}%
         </span>
         <span className="featured-leverage">{stock.leverage}x</span>
       </div>
-      <button className="btn-vote-stock" onClick={() => onVote(stock.id)}>
-        <ChevronUp size={14} /> Votar
-      </button>
+      <div className="card-actions-group">
+        <button className="btn-trade-stock" onClick={() => onTrade(stock, 'BUY')}>
+          <Zap size={14} /> Operar
+        </button>
+        <button className="btn-vote-stock-secondary" onClick={() => onVote(stock.id)} title="Votar acción">
+          <ChevronUp size={14} /> {stock.votes > 0 ? stock.votes : ''}
+        </button>
+      </div>
     </div>
   );
 }
 
 /* ── Stock Row (Más subidas / bajadas) ──────────────────── */
-function StockRow({ stock, rank, onVote }) {
+function StockRow({ stock, rank, onVote, onTrade, userHolding }) {
   const isUp = stock.change >= 0;
+  const sharesOwned = userHolding?.shares || 0;
+
   return (
     <div className="stock-row">
       {rank && <span className="stock-rank">{rank}</span>}
       <span className="stock-row-emoji">{stock.emoji}</span>
       <div className="stock-row-info">
-        <span className="stock-row-ticker">{stock.ticker}</span>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <span className="stock-row-ticker">{stock.ticker}</span>
+          {sharesOwned > 0 && (
+            <span className="holding-badge-pill">x{sharesOwned}</span>
+          )}
+        </div>
         <span className="stock-row-name">{stock.name}</span>
       </div>
       <div className="stock-row-spark">
         <Sparkline data={stock.sparkline} color={isUp ? '#00ba7c' : '#f91880'} width={60} height={28} />
       </div>
       <div className="stock-row-right">
-        <span className="stock-row-price">${stock.price.toLocaleString()}</span>
+        <span className="stock-row-price">${stock.price.toFixed(2)}</span>
         <span className={`stock-row-change ${isUp ? 'up' : 'down'}`}>
-          {isUp ? '+' : ''}${Math.abs(stock.change).toFixed(2)} ({Math.abs(stock.change).toFixed(2)}%)
+          {isUp ? '+' : ''}{stock.change}%
         </span>
       </div>
-      <button className="btn-vote-mini" onClick={() => onVote(stock.id)}>
+      <button className="btn-trade-stock" style={{ width: 'auto', padding: '6px 10px', fontSize: 12 }} onClick={() => onTrade(stock, 'BUY')}>
+        Operar
+      </button>
+      <button className="btn-vote-mini" onClick={() => onVote(stock.id)} title="Votar acción">
         <ChevronUp size={14} />
       </button>
     </div>
@@ -371,107 +805,128 @@ function StockRow({ stock, rank, onVote }) {
 }
 
 /* ── Acciones Page ──────────────────────────────────────── */
-function AccionesPage({ votes, setVotes }) {
+function AccionesPage({ marketEngineData, onTrade, onStockVote }) {
   const { session } = useSession();
   const [activeTab, setActiveTab] = useState('discover');
+  const [tradeModalStock, setTradeModalStock] = useState(null);
 
-  // Compute bros and hoes from INITIAL data and votes
-  const { bros, hoes } = useMemo(() => {
-    const baseBros = JSON.parse(JSON.stringify(BROS));
-    const baseHoes = JSON.parse(JSON.stringify(HOES));
-    
-    const stockVotes = votes.filter(v => v.vote_type === 'stock');
-    stockVotes.forEach(vote => {
-      const list = vote.target_id.startsWith('bro') ? baseBros : baseHoes;
-      const s = list.find(x => x.id === vote.target_id);
-      if (s) {
-        const bump = +(s.price * 0.012).toFixed(2);
-        s.price = +(s.price + bump).toFixed(2);
-        s.change = +(s.change + 1.2).toFixed(2);
-        s.votes += 1;
-        s.sparkline.push(s.price);
-        s.sparkline.shift();
-      }
-    });
-    return { bros: baseBros, hoes: baseHoes };
-  }, [votes]);
+  const { bros, hoes, allStocks, leaderboard, userPortfolio } = marketEngineData;
 
-  const handleVote = (id) => {
-    // Votos en acciones son gratis, no gastan presupuesto.
-    const newVote = {
-      id: generateUUID(),
-      vote_type: 'stock',
-      target_id: String(id),
-      option_name: null,
-      voter_name: session.name,
-      created_at: new Date().toISOString()
-    };
-    setVotes(prev => [...prev, newVote]);
-    supabase.from('votes').insert(newVote).then(({error}) => {
-      if (error) console.error("Error voting stock:", error);
-    });
-  };
-
-  const allStocks = useMemo(() => [...bros, ...hoes], [bros, hoes]);
   const topGainers = useMemo(() => [...allStocks].sort((a, b) => b.change - a.change).slice(0, 5), [allStocks]);
   const topLosers = useMemo(() => [...allStocks].sort((a, b) => a.change - b.change).slice(0, 5), [allStocks]);
-  const featured = useMemo(() => [...allStocks].sort((a, b) => b.votes - a.votes).slice(0, 4), [allStocks]);
+  const featured = useMemo(() => [...allStocks].sort((a, b) => (b.votes + b.tradesCount) - (a.votes + a.tradesCount)).slice(0, 4), [allStocks]);
 
   const displayList = activeTab === 'bros' ? bros
     : activeTab === 'hoes' ? hoes
     : activeTab === 'ranking' ? [...allStocks].sort((a, b) => b.votes - a.votes)
     : null;
 
-  const remaining = DAILY_BUDGET - session.spent;
+  const getHolding = (stockId) => {
+    return userPortfolio?.positions?.find(p => p.stockId === stockId) || null;
+  };
+
+  const handleOpenTrade = (stock) => {
+    setTradeModalStock(stock);
+  };
 
   return (
     <main className="main-layout">
-      <AccionesSidebar activeTab={activeTab} onTabChange={setActiveTab} />
+      <AccionesSidebar 
+        activeTab={activeTab} 
+        onTabChange={setActiveTab} 
+        portfolioCount={userPortfolio?.positions?.length || 0} 
+      />
       <div className="content">
         <div className="acciones-header-row">
           <div>
-            <h2 className="section-title" style={{ marginBottom: 4 }}>Acciones</h2>
-            <p className="acciones-subtitle">Opera Bros y Hoes 24/7 con hasta 50x de apalancamiento.</p>
+            <h2 className="section-title" style={{ marginBottom: 4 }}>Bolsa de Valores Capri 📈</h2>
+            <p className="acciones-subtitle">Opera Bros y Hoes 24/7. Las votaciones impulsan los precios en tiempo real.</p>
           </div>
           <div className="search-bar" style={{ width: 240 }}>
             <Search size={16} />
-            <input type="text" placeholder="Buscar" />
+            <input type="text" placeholder="Buscar activo..." />
           </div>
         </div>
 
-        {/* Discover tab */}
+        {/* Global Financial Banner for the User */}
+        <PortfolioBanner userPortfolio={userPortfolio} onTabChange={setActiveTab} />
+
+        {/* Tab: Mi Cartera */}
+        {activeTab === 'portfolio' && (
+          <PortfolioView 
+            userPortfolio={userPortfolio} 
+            onTradeClick={handleOpenTrade}
+            onExploreClick={() => setActiveTab('discover')}
+          />
+        )}
+
+        {/* Tab: Wall Street Capri Leaderboard */}
+        {activeTab === 'leaderboard' && (
+          <LeaderboardView 
+            leaderboard={leaderboard} 
+            currentUserName={session?.name}
+          />
+        )}
+
+        {/* Tab: Discover */}
         {activeTab === 'discover' && (
           <>
             {/* Destacados */}
-            <h3 className="subsection-title">Destacados ⭐</h3>
+            <h3 className="subsection-title">Destacados del Momento ⭐</h3>
             <div className="featured-grid">
-              {featured.map(s => <FeaturedCard key={s.id} stock={s} onVote={handleVote} />)}
+              {featured.map(s => (
+                <FeaturedCard 
+                  key={s.id} 
+                  stock={s} 
+                  onVote={onStockVote} 
+                  onTrade={handleOpenTrade}
+                  userHolding={getHolding(s.id)}
+                />
+              ))}
             </div>
 
             {/* Más subidas / bajadas */}
             <div className="gainers-losers">
               <div className="gl-col">
                 <div className="gl-header">
-                  <h3 className="subsection-title">Más subidas</h3>
-                  <span className="gl-view-all">Ver todo</span>
+                  <h3 className="subsection-title">Más subidas 🚀</h3>
+                  <span className="gl-view-all" onClick={() => setActiveTab('all')}>Ver todo</span>
                 </div>
-                {topGainers.map((s, i) => <StockRow key={s.id} stock={s} rank={i + 1} onVote={handleVote} />)}
+                {topGainers.map((s, i) => (
+                  <StockRow 
+                    key={s.id} 
+                    stock={s} 
+                    rank={i + 1} 
+                    onVote={onStockVote} 
+                    onTrade={handleOpenTrade}
+                    userHolding={getHolding(s.id)}
+                  />
+                ))}
               </div>
               <div className="gl-col">
                 <div className="gl-header">
-                  <h3 className="subsection-title">Más bajadas</h3>
-                  <span className="gl-view-all">Ver todo</span>
+                  <h3 className="subsection-title">Más bajadas 📉</h3>
+                  <span className="gl-view-all" onClick={() => setActiveTab('all')}>Ver todo</span>
                 </div>
-                {topLosers.map((s, i) => <StockRow key={s.id} stock={s} rank={i + 1} onVote={handleVote} />)}
+                {topLosers.map((s, i) => (
+                  <StockRow 
+                    key={s.id} 
+                    stock={s} 
+                    rank={i + 1} 
+                    onVote={onStockVote} 
+                    onTrade={handleOpenTrade}
+                    userHolding={getHolding(s.id)}
+                  />
+                ))}
               </div>
             </div>
           </>
         )}
 
-        {/* Ranking tab */}
+        {/* Tab: Ranking por votos */}
         {activeTab === 'ranking' && (
           <>
-            <h3 className="subsection-title">Ranking por votos 🏆</h3>
+            <h3 className="subsection-title">Ranking por Votos y Popularidad 🏆</h3>
             <div className="ranking-table">
               <div className="ranking-header-row">
                 <span>#</span>
@@ -479,7 +934,7 @@ function AccionesPage({ votes, setVotes }) {
                 <span>Precio</span>
                 <span>Cambio</span>
                 <span>Votos</span>
-                <span></span>
+                <span>Acción</span>
               </div>
               {displayList.map((s, i) => (
                 <div className="ranking-row" key={s.id}>
@@ -491,55 +946,82 @@ function AccionesPage({ votes, setVotes }) {
                       <span className="stock-row-name">{s.name}</span>
                     </div>
                   </div>
-                  <span className="ranking-price">${s.price.toLocaleString()}</span>
+                  <span className="ranking-price">${s.price.toFixed(2)}</span>
                   <span className={`stock-row-change ${s.change >= 0 ? 'up' : 'down'}`}>
                     {s.change >= 0 ? '+' : ''}{s.change}%
                   </span>
                   <span className="ranking-votes">{s.votes}</span>
-                  <button className="btn-vote-mini" onClick={() => handleVote(s.id)}>
-                    <ChevronUp size={14} /> Votar
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn-trade-stock" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => handleOpenTrade(s)}>
+                      Operar
+                    </button>
+                    <button className="btn-vote-mini" onClick={() => onStockVote(s.id)}>
+                      <ChevronUp size={14} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </>
         )}
 
-        {/* Bros / Hoes / All tabs */}
+        {/* Tabs: Bros / Hoes / All */}
         {(activeTab === 'bros' || activeTab === 'hoes' || activeTab === 'all') && (
           <>
             <h3 className="subsection-title">
-              {activeTab === 'bros' ? '🧑‍🤝‍🧑 Bros' : activeTab === 'hoes' ? '💅 Hoes' : '📋 Todos los activos'}
+              {activeTab === 'bros' ? '🧑‍🤝‍🧑 Bros (Acciones de Amigos)' : activeTab === 'hoes' ? '💅 Hoes (Alta Volatilidad / 50x)' : '📋 Todos los activos'}
             </h3>
             <div className="stock-list-full">
-              {(activeTab === 'all' ? allStocks : displayList).map((s, i) => (
-                <div className="stock-full-row" key={s.id}>
-                  <span className="stock-rank">{i + 1}</span>
-                  <span className="stock-row-emoji">{s.emoji}</span>
-                  <div className="stock-row-info">
-                    <span className="stock-row-ticker">{s.ticker}</span>
-                    <span className="stock-row-name">{s.name}</span>
+              {(activeTab === 'all' ? allStocks : displayList).map((s, i) => {
+                const holding = getHolding(s.id);
+                return (
+                  <div className="stock-full-row" key={s.id}>
+                    <span className="stock-rank">{i + 1}</span>
+                    <span className="stock-row-emoji">{s.emoji}</span>
+                    <div className="stock-row-info">
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span className="stock-row-ticker">{s.ticker}</span>
+                        {holding && <span className="holding-badge-pill">x{holding.shares}</span>}
+                      </div>
+                      <span className="stock-row-name">{s.name}</span>
+                    </div>
+                    <div className="stock-row-spark">
+                      <Sparkline data={s.sparkline} color={s.change >= 0 ? '#00ba7c' : '#f91880'} width={80} height={32} />
+                    </div>
+                    <div className="stock-row-right">
+                      <span className="stock-row-price">${s.price.toFixed(2)}</span>
+                      <span className={`stock-row-change ${s.change >= 0 ? 'up' : 'down'}`}>
+                        {s.change >= 0 ? '+' : ''}{s.change}%
+                      </span>
+                    </div>
+                    <span className="stock-full-votes">{s.votes} votos</span>
+                    <span className="stock-full-leverage">{s.leverage}x</span>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn-trade-stock" style={{ width: 'auto', padding: '6px 12px', fontSize: 12 }} onClick={() => handleOpenTrade(s)}>
+                        Operar
+                      </button>
+                      <button className="btn-vote-mini" onClick={() => onStockVote(s.id)}>
+                        <ChevronUp size={14} />
+                      </button>
+                    </div>
                   </div>
-                  <div className="stock-row-spark">
-                    <Sparkline data={s.sparkline} color={s.change >= 0 ? '#00ba7c' : '#f91880'} width={80} height={32} />
-                  </div>
-                  <div className="stock-row-right">
-                    <span className="stock-row-price">${s.price.toLocaleString()}</span>
-                    <span className={`stock-row-change ${s.change >= 0 ? 'up' : 'down'}`}>
-                      {s.change >= 0 ? '+' : ''}{s.change}%
-                    </span>
-                  </div>
-                  <span className="stock-full-votes">{s.votes} votos</span>
-                  <span className="stock-full-leverage">{s.leverage}x</span>
-                  <button className="btn-vote-mini" onClick={() => handleVote(s.id)}>
-                    <ChevronUp size={14} /> Votar
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </>
         )}
       </div>
+
+      {/* Floating / Contextual Trade Modal */}
+      {tradeModalStock && (
+        <TradeModal
+          stock={tradeModalStock}
+          userPortfolio={userPortfolio}
+          isOpen={!!tradeModalStock}
+          onClose={() => setTradeModalStock(null)}
+          onTrade={onTrade}
+        />
+      )}
     </main>
   );
 }
@@ -771,7 +1253,7 @@ function Toast({ message, type, onDone }) {
 /* ── Modal: Crear Votación ───────────────────────────────── */
 function CreateMarketModal({ isOpen, onClose, onCreate, createdTodayCount }) {
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('Cumple Gaspar');
+  const [category, setCategory] = useState('Fiesta');
   const [emoji, setEmoji] = useState('🍻');
   const [optionMode, setOptionMode] = useState('friends'); // 'friends' | 'yesno' | 'custom'
   const [customOptions, setCustomOptions] = useState(['', '']);
@@ -780,8 +1262,8 @@ function CreateMarketModal({ isOpen, onClose, onCreate, createdTodayCount }) {
 
   const canCreate = createdTodayCount < 2;
 
-  const quickEmojis = ['🍻', '🎂', '🥴', '🤮', '🔥', '💀', '📱', '😈', '👑', '🍕', '🎯', '💃'];
-  const categories = ['Cumple Gaspar', 'Fiesta', 'Salseo', 'Tendencia', 'Random'];
+  const quickEmojis = ['🍻', '🎉', '🥴', '🔥', '💀', '📱', '😈', '👑', '🍕', '🎯', '💃'];
+  const categories = ['Fiesta', 'Salseo', 'Tendencia', 'Random'];
 
   const handleAddCustomOption = () => {
     if (customOptions.length < 8) {
@@ -1033,6 +1515,7 @@ function App() {
   const [votes, setVotes] = useState([]);
   const [selectedMarketId, setSelectedMarketId] = useState(null);
   const [currentPage, setCurrentPage] = useState('markets');
+  const [activeCategory, setActiveCategory] = useState('Todos');
   const [toast, setToast] = useState(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
@@ -1113,6 +1596,12 @@ function App() {
     return markets.find(m => m.id === selectedMarketId) || null;
   }, [markets, selectedMarketId]);
 
+  const marketEngineData = useMemo(() => {
+    return computeMarketEngine(votes, session?.name);
+  }, [votes, session?.name]);
+
+  const { userPortfolio, stockLookup } = marketEngineData;
+
   const handleLogin = useCallback((name) => {
     const newSession = { name, day: getTodayKey(), spent: 0 };
     saveSession(newSession);
@@ -1124,27 +1613,14 @@ function App() {
     setSession(null);
   }, []);
 
-  const spend = useCallback((amount) => {
-    const s = { ...session };
-    // Reset if new day
-    if (s.day !== getTodayKey()) {
-      s.day = getTodayKey();
-      s.spent = 0;
-    }
-    const remaining = DAILY_BUDGET - s.spent;
-    if (remaining < amount) {
-      setToast({ message: `Sin saldo! Te quedan $${remaining} hoy`, type: 'error' });
-      return false;
-    }
-    s.spent += amount;
-    saveSession(s);
-    setSession(s);
-    setToast({ message: `Gastaste $${amount} — te quedan $${DAILY_BUDGET - s.spent}`, type: 'success' });
-    return true;
-  }, [session]);
-
   const handleVote = useCallback((marketId, optionName) => {
-    if (!spend(COST_PER_VOTE)) return;
+    if (userPortfolio.cash < COST_PER_VOTE) {
+      setToast({ 
+        message: `¡Sin saldo suficiente! Te quedan $${userPortfolio.cash.toFixed(2)}. Vende acciones para conseguir efectivo.`, 
+        type: 'error' 
+      });
+      return;
+    }
     
     const newVote = {
       id: generateUUID(),
@@ -1159,7 +1635,63 @@ function App() {
     supabase.from('votes').insert(newVote).then(({error}) => {
       if (error) console.error("Error insertando voto:", error);
     });
-  }, [session, spend]);
+    setToast({ message: `Apostaste $${COST_PER_VOTE} por "${optionName}"`, type: 'success' });
+  }, [session, userPortfolio.cash]);
+
+  const handleTrade = useCallback(({ stockId, action, amount, shares, price }) => {
+    if (!session?.name) return;
+    const stock = stockLookup[stockId];
+    const stockTicker = stock?.ticker || 'ACT';
+
+    const newTradeEvent = {
+      id: generateUUID(),
+      vote_type: 'trade',
+      target_id: String(stockId),
+      option_name: JSON.stringify({
+        action,
+        amount,
+        shares,
+        price
+      }),
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
+
+    setVotes(prev => [...prev, newTradeEvent]);
+    supabase.from('votes').insert(newTradeEvent).then(({ error }) => {
+      if (error) console.error("Error trade supabase:", error);
+    });
+
+    if (action === 'BUY') {
+      setToast({ 
+        message: `🚀 Compraste ${shares} acc de ${stockTicker} por $${amount.toFixed(2)}`, 
+        type: 'success' 
+      });
+    } else {
+      setToast({ 
+        message: `💰 Vendiste ${shares} acc de ${stockTicker} (+ $${amount.toFixed(2)})`, 
+        type: 'success' 
+      });
+    }
+  }, [session, stockLookup]);
+
+  const handleStockDirectVote = useCallback((stockId) => {
+    if (!session?.name) return;
+    const stock = stockLookup[stockId];
+    const newVote = {
+      id: generateUUID(),
+      vote_type: 'stock',
+      target_id: String(stockId),
+      option_name: null,
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
+    setVotes(prev => [...prev, newVote]);
+    supabase.from('votes').insert(newVote).then(({ error }) => {
+      if (error) console.error("Error voting stock:", error);
+    });
+    setToast({ message: `🔥 Voto enviado a ${stock?.ticker || 'Acción'} — precio subiendo!`, type: 'success' });
+  }, [session, stockLookup]);
 
   const handleCreateMarket = useCallback(({ title, category, emoji, options }) => {
     if (userCreationsToday >= 2) {
@@ -1219,12 +1751,17 @@ function App() {
     setSelectedMarketId(null);
   };
 
+  const filteredMarkets = useMemo(() => {
+    if (!activeCategory || activeCategory === 'Todos') return markets;
+    return markets.filter(m => m.category === activeCategory);
+  }, [markets, activeCategory]);
+
   // Show login if no session
   if (!session) {
     return <LoginScreen onLogin={handleLogin} />;
   }
 
-  const sessionValue = { session, logout: handleLogout, spend };
+  const sessionValue = { session, logout: handleLogout };
 
   return (
     <SessionCtx.Provider value={sessionValue}>
@@ -1234,14 +1771,28 @@ function App() {
           onNavigate={handleNavigate}
           onOpenCreate={() => setIsCreateModalOpen(true)}
           createdTodayCount={userCreationsToday}
+          userPortfolio={userPortfolio}
         />
-        <NavCategories currentPage={currentPage} onNavigate={handleNavigate} />
+        <NavCategories 
+          currentPage={currentPage} 
+          onNavigate={handleNavigate} 
+          activeCategory={activeCategory}
+          onSelectCategory={setActiveCategory}
+        />
 
         {currentPage === 'acciones' ? (
-          <AccionesPage votes={votes} setVotes={setVotes} />
+          <AccionesPage 
+            marketEngineData={marketEngineData}
+            onTrade={handleTrade}
+            onStockVote={handleStockDirectVote}
+          />
         ) : (
           <main className="main-layout">
-            <Sidebar />
+            <Sidebar 
+              markets={markets}
+              activeCategory={activeCategory}
+              onSelectCategory={setActiveCategory}
+            />
             <div className="content">
               {selectedMarket ? (
                 <MarketDetail
@@ -1251,13 +1802,17 @@ function App() {
                 />
               ) : (
                 <>
-                  <HeroMarket 
-                    market={markets[0]} 
-                    onVote={handleVote} 
-                    onClick={(m) => setSelectedMarketId(m.id)} 
-                  />
+                  {activeCategory === 'Todos' && markets[0] && (
+                    <HeroMarket 
+                      market={markets[0]} 
+                      onVote={handleVote} 
+                      onClick={(m) => setSelectedMarketId(m.id)} 
+                    />
+                  )}
                   <div className="markets-section-header">
-                    <h2 className="section-title" style={{margin: 0}}>Todos los mercados</h2>
+                    <h2 className="section-title" style={{margin: 0}}>
+                      {activeCategory === 'Todos' ? 'Todos los mercados' : `Mercados de ${activeCategory}`}
+                    </h2>
                     <button 
                       className="btn-secondary-create"
                       onClick={() => setIsCreateModalOpen(true)}
@@ -1266,7 +1821,7 @@ function App() {
                     </button>
                   </div>
                   <div className="markets-grid">
-                    {markets.slice(1).map(market => (
+                    {(activeCategory === 'Todos' ? filteredMarkets.slice(1) : filteredMarkets).map(market => (
                       <MarketCard
                         key={market.id}
                         market={market}
