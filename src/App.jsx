@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect, useCallback, createContext, useContext } from 'react';
-import { Search, TrendingUp, Clock, BarChart2, MessageCircle, Gift, Bookmark, ArrowLeft, Star, ChevronUp, ChevronDown, Zap, Users, Heart, DollarSign, LogOut, User } from 'lucide-react';
+import { Search, TrendingUp, Clock, BarChart2, MessageCircle, Gift, Bookmark, ArrowLeft, Star, ChevronUp, ChevronDown, Zap, Users, Heart, DollarSign, LogOut, User, Plus, PlusCircle, X, Sparkles } from 'lucide-react';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -40,6 +40,17 @@ const COST_PER_VOTE = 1;
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+}
+
+function generateUUID() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
 }
 
 function loadSession() {
@@ -162,7 +173,7 @@ function Sparkline({ data, color, width = 80, height = 32 }) {
 }
 
 /* ── Header ─────────────────────────────────────────────── */
-function Header({ currentPage, onNavigate }) {
+function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0 }) {
   const { session, logout } = useSession();
   const remaining = DAILY_BUDGET - session.spent;
 
@@ -179,6 +190,18 @@ function Header({ currentPage, onNavigate }) {
         </div>
       </div>
       <div className="header-right">
+        <button 
+          className="btn-create-poll"
+          onClick={onOpenCreate}
+          title={createdTodayCount >= 2 ? "Límite diario alcanzado (máx 2 por día)" : "Crear nueva votación"}
+        >
+          <PlusCircle size={16} />
+          <span>Crear Votación</span>
+          <span className={`poll-quota-chip ${createdTodayCount >= 2 ? 'full' : ''}`}>
+            {createdTodayCount}/2
+          </span>
+        </button>
+
         <div className="header-balance">
           <DollarSign size={16} />
           <span className={`balance-amount ${remaining <= 2 ? 'low' : ''}`}>
@@ -376,7 +399,7 @@ function AccionesPage({ votes, setVotes }) {
   const handleVote = (id) => {
     // Votos en acciones son gratis, no gastan presupuesto.
     const newVote = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       vote_type: 'stock',
       target_id: String(id),
       option_name: null,
@@ -529,7 +552,10 @@ function MarketCard({ market, onVote, onClick }) {
     <div className="market-card" onClick={() => onClick(market)}>
       <div className="card-header">
         <div className="card-icon">{market.emoji || '🎭'}</div>
-        <div className="card-title">{market.title}</div>
+        <div className="card-title">
+          {market.title}
+          {market.author && <span className="market-author-tag">Por {market.author}</span>}
+        </div>
       </div>
       <div className="card-options">
         {calculatedOptions.map((opt, i) => (
@@ -680,8 +706,9 @@ function MarketDetail({ market, onVote, onBack }) {
 
       <div className="detail-header">
         <div>
-          <div className="flex-center" style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '14px' }}>
-            {market.category} • Finaliza {market.endDate}
+          <div className="flex-center" style={{ color: 'var(--text-secondary)', marginBottom: '8px', fontSize: '14px', gap: '8px' }}>
+            <span>{market.category} • Finaliza {market.endDate}</span>
+            {market.author && <span className="market-author-tag">Creado por {market.author}</span>}
           </div>
           <h1 className="detail-title">{market.title}</h1>
         </div>
@@ -741,17 +768,277 @@ function Toast({ message, type, onDone }) {
   );
 }
 
+/* ── Modal: Crear Votación ───────────────────────────────── */
+function CreateMarketModal({ isOpen, onClose, onCreate, createdTodayCount }) {
+  const [title, setTitle] = useState('');
+  const [category, setCategory] = useState('Cumple Gaspar');
+  const [emoji, setEmoji] = useState('🍻');
+  const [optionMode, setOptionMode] = useState('friends'); // 'friends' | 'yesno' | 'custom'
+  const [customOptions, setCustomOptions] = useState(['', '']);
+
+  if (!isOpen) return null;
+
+  const canCreate = createdTodayCount < 2;
+
+  const quickEmojis = ['🍻', '🎂', '🥴', '🤮', '🔥', '💀', '📱', '😈', '👑', '🍕', '🎯', '💃'];
+  const categories = ['Cumple Gaspar', 'Fiesta', 'Salseo', 'Tendencia', 'Random'];
+
+  const handleAddCustomOption = () => {
+    if (customOptions.length < 8) {
+      setCustomOptions([...customOptions, '']);
+    }
+  };
+
+  const handleRemoveCustomOption = (index) => {
+    if (customOptions.length > 2) {
+      setCustomOptions(customOptions.filter((_, i) => i !== index));
+    }
+  };
+
+  const handleCustomOptionChange = (index, value) => {
+    const updated = [...customOptions];
+    updated[index] = value;
+    setCustomOptions(updated);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!canCreate) return;
+    if (!title.trim()) return;
+
+    let finalOptions = [];
+    if (optionMode === 'friends') {
+      finalOptions = [...FRIENDS];
+    } else if (optionMode === 'yesno') {
+      finalOptions = ['Sí', 'No'];
+    } else {
+      finalOptions = customOptions.map(o => o.trim()).filter(Boolean);
+      if (finalOptions.length < 2) return;
+    }
+
+    const success = onCreate({
+      title: title.trim(),
+      category,
+      emoji,
+      options: finalOptions
+    });
+
+    if (success) {
+      setTitle('');
+      setCustomOptions(['', '']);
+      onClose();
+    }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <div className="modal-header-text">
+            <h3>Nueva Votación</h3>
+            <p>Publica una votación en vivo para todos los invitados</p>
+          </div>
+          <button className="modal-close-btn" onClick={onClose}>
+            <X size={20} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <div className="modal-body">
+            {/* Quota Banner */}
+            {createdTodayCount === 0 && (
+              <div className="quota-banner available">
+                <span>✨ Tienes <strong>2 votaciones</strong> disponibles para crear hoy</span>
+                <span>(0/2 creadas)</span>
+              </div>
+            )}
+            {createdTodayCount === 1 && (
+              <div className="quota-banner warning">
+                <span>⚡ Te queda <strong>1 votación</strong> disponible para hoy</span>
+                <span>(1/2 creadas)</span>
+              </div>
+            )}
+            {createdTodayCount >= 2 && (
+              <div className="quota-banner exhausted">
+                <span>🚫 <strong>Límite alcanzado:</strong> Ya creaste 2 votaciones hoy. ¡Mañana podrás crear más!</span>
+              </div>
+            )}
+
+            {/* Pregunta / Título */}
+            <div className="form-field">
+              <label>Pregunta o Título de la votación</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="Ej: ¿Quién será el primero en pedir bajón?"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                disabled={!canCreate}
+                required
+                maxLength={90}
+              />
+            </div>
+
+            {/* Categoría & Emoji */}
+            <div className="form-row">
+              <div className="form-field">
+                <label>Categoría</label>
+                <select
+                  className="form-input"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  disabled={!canCreate}
+                >
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="form-field">
+                <label>Emoji</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  style={{ width: '80px', textAlign: 'center', fontSize: '18px' }}
+                  value={emoji}
+                  onChange={(e) => setEmoji(e.target.value)}
+                  disabled={!canCreate}
+                  maxLength={4}
+                />
+              </div>
+            </div>
+
+            {/* Quick Emojis */}
+            <div className="form-field">
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>O elige rápido un emoji:</label>
+              <div className="emoji-picker-row">
+                {quickEmojis.map((e) => (
+                  <button
+                    key={e}
+                    type="button"
+                    className={`emoji-btn ${emoji === e ? 'selected' : ''}`}
+                    onClick={() => setEmoji(e)}
+                    disabled={!canCreate}
+                  >
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Modo de Opciones */}
+            <div className="form-field">
+              <label>Opciones a votar</label>
+              <div className="mode-chips">
+                <button
+                  type="button"
+                  className={`mode-chip ${optionMode === 'friends' ? 'active' : ''}`}
+                  onClick={() => setOptionMode('friends')}
+                  disabled={!canCreate}
+                >
+                  👥 Los 13 Amigos
+                </button>
+                <button
+                  type="button"
+                  className={`mode-chip ${optionMode === 'yesno' ? 'active' : ''}`}
+                  onClick={() => setOptionMode('yesno')}
+                  disabled={!canCreate}
+                >
+                  ⚖️ Sí / No
+                </button>
+                <button
+                  type="button"
+                  className={`mode-chip ${optionMode === 'custom' ? 'active' : ''}`}
+                  onClick={() => setOptionMode('custom')}
+                  disabled={!canCreate}
+                >
+                  ✏️ Libres
+                </button>
+              </div>
+            </div>
+
+            {/* Opciones details */}
+            {optionMode === 'friends' && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-color)', padding: '10px 14px', borderRadius: 'var(--radius-md)' }}>
+                Se incluirán automáticamente todos los amigos: <strong>{FRIENDS.slice(0, 6).join(', ')}</strong> y más ({FRIENDS.length} en total).
+              </div>
+            )}
+
+            {optionMode === 'yesno' && (
+              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', background: 'var(--bg-color)', padding: '10px 14px', borderRadius: 'var(--radius-md)' }}>
+                Votación binaria clásica: <strong>Sí</strong> o <strong>No</strong>.
+              </div>
+            )}
+
+            {optionMode === 'custom' && (
+              <div className="custom-options-container">
+                {customOptions.map((opt, i) => (
+                  <div key={i} className="custom-option-row">
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder={`Opción ${i + 1}`}
+                      value={opt}
+                      onChange={(e) => handleCustomOptionChange(i, e.target.value)}
+                      disabled={!canCreate}
+                      required
+                    />
+                    {customOptions.length > 2 && (
+                      <button
+                        type="button"
+                        className="btn-remove-opt"
+                        onClick={() => handleRemoveCustomOption(i)}
+                      >
+                        <X size={18} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                {customOptions.length < 8 && (
+                  <button
+                    type="button"
+                    className="btn-add-opt"
+                    onClick={handleAddCustomOption}
+                    disabled={!canCreate}
+                  >
+                    <Plus size={15} /> Añadir otra opción
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="modal-footer">
+            <button type="button" className="btn-modal-cancel" onClick={onClose}>
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              className="btn-modal-submit"
+              disabled={!canCreate || !title.trim()}
+            >
+              Publicar Votación
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 /* ── App ────────────────────────────────────────────────── */
 function App() {
   const [session, setSession] = useState(() => loadSession());
   const [votes, setVotes] = useState([]);
-  const [markets, setMarkets] = useState(INITIAL_MARKETS);
-  const [selectedMarket, setSelectedMarket] = useState(null);
+  const [selectedMarketId, setSelectedMarketId] = useState(null);
   const [currentPage, setCurrentPage] = useState('markets');
   const [toast, setToast] = useState(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
   useEffect(() => {
-    supabase.from('votes').select('*').order('created_at', { ascending: true }).then(({ data }) => {
+    supabase.from('votes').select('*').order('created_at', { ascending: true }).then(({ data, error }) => {
+      if (error) console.error("Error al cargar votos de Supabase:", error);
       if (data) setVotes(data);
     });
 
@@ -762,8 +1049,43 @@ function App() {
     return () => supabase.removeChannel(channel);
   }, []);
 
-  useEffect(() => {
+  const todayKey = getTodayKey();
+
+  // Conteo de creaciones del usuario hoy (máximo 2 por día)
+  const userCreationsToday = useMemo(() => {
+    if (!session?.name) return 0;
+    return votes.filter(
+      v => v.vote_type === 'create_market' && 
+           v.voter_name === session.name && 
+           v.created_at && v.created_at.slice(0, 10) === todayKey
+    ).length;
+  }, [votes, session?.name, todayKey]);
+
+  const markets = useMemo(() => {
     const baseMarkets = JSON.parse(JSON.stringify(INITIAL_MARKETS));
+
+    // Agregar mercados creados por los usuarios desde Supabase
+    const customMarketEvents = votes.filter(v => v.vote_type === 'create_market');
+    customMarketEvents.forEach(evt => {
+      try {
+        const m = typeof evt.target_id === 'string' ? JSON.parse(evt.target_id) : evt.target_id;
+        if (m && m.id && !baseMarkets.some(x => String(x.id) === String(m.id))) {
+          if (!m.history || m.history.length === 0) {
+            m.history = [
+              {
+                label: 'Inicio',
+                data: Object.fromEntries(m.options.map(o => [o.name, Math.round(100 / (m.options.length || 1))]))
+              }
+            ];
+          }
+          baseMarkets.push(m);
+        }
+      } catch (e) {
+        console.error("Error parsing custom market:", e);
+      }
+    });
+
+    // Aplicar votos en tiempo real a todos los mercados
     votes.filter(v => v.vote_type === 'market').forEach(vote => {
       const m = baseMarkets.find(x => String(x.id) === String(vote.target_id));
       if (m) {
@@ -772,19 +1094,24 @@ function App() {
           opt.shares += 10;
           const newCalculated = calculateOdds(m.options);
           const dateObj = new Date(vote.created_at);
-          const newDataPoint = { label: dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), data: {} };
+          const newDataPoint = { 
+            label: isNaN(dateObj.getTime()) ? 'Ahora' : dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 
+            data: {} 
+          };
           newCalculated.forEach(o => newDataPoint.data[o.name] = Math.round(o.prob * 100));
           m.history.push(newDataPoint);
           if (m.history.length > 20) m.history.shift();
         }
       }
     });
-    setMarkets(baseMarkets);
-    if (selectedMarket) {
-      const updated = baseMarkets.find(m => m.id === selectedMarket.id);
-      if (updated) setSelectedMarket(updated);
-    }
-  }, [votes, selectedMarket]);
+
+    return baseMarkets;
+  }, [votes]);
+
+  const selectedMarket = useMemo(() => {
+    if (!selectedMarketId) return null;
+    return markets.find(m => m.id === selectedMarketId) || null;
+  }, [markets, selectedMarketId]);
 
   const handleLogin = useCallback((name) => {
     const newSession = { name, day: getTodayKey(), spent: 0 };
@@ -820,7 +1147,7 @@ function App() {
     if (!spend(COST_PER_VOTE)) return;
     
     const newVote = {
-      id: crypto.randomUUID(),
+      id: generateUUID(),
       vote_type: 'market',
       target_id: String(marketId),
       option_name: optionName,
@@ -830,13 +1157,66 @@ function App() {
 
     setVotes(prev => [...prev, newVote]);
     supabase.from('votes').insert(newVote).then(({error}) => {
-      if (error) console.error(error);
+      if (error) console.error("Error insertando voto:", error);
     });
   }, [session, spend]);
 
+  const handleCreateMarket = useCallback(({ title, category, emoji, options }) => {
+    if (userCreationsToday >= 2) {
+      setToast({ message: '⚠️ Límite alcanzado: máximo 2 votaciones por día.', type: 'error' });
+      return false;
+    }
+
+    const marketId = generateUUID();
+    const optionsArray = options.map(opt => ({
+      name: opt.trim(),
+      shares: 20
+    }));
+
+    const initialProb = Math.round(100 / (optionsArray.length || 1));
+    const newMarket = {
+      id: marketId,
+      title: title.trim(),
+      category: category || 'Fiesta',
+      emoji: emoji || '🎯',
+      volume: '$0 Vol.',
+      endDate: '17 de Octubre',
+      author: session.name,
+      isCustom: true,
+      options: optionsArray,
+      history: [
+        {
+          label: 'Inicio',
+          data: Object.fromEntries(optionsArray.map(o => [o.name, initialProb]))
+        }
+      ]
+    };
+
+    const newEvent = {
+      id: marketId,
+      vote_type: 'create_market',
+      target_id: JSON.stringify(newMarket),
+      option_name: newMarket.title,
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
+
+    setVotes(prev => [...prev, newEvent]);
+    supabase.from('votes').insert(newEvent).then(({ error }) => {
+      if (error) {
+        console.error("Error al publicar votación en Supabase:", error);
+        setToast({ message: 'Error al publicar votación en la nube', type: 'error' });
+      } else {
+        setToast({ message: '🎉 ¡Votación creada y publicada para todos!', type: 'success' });
+      }
+    });
+
+    return true;
+  }, [userCreationsToday, session]);
+
   const handleNavigate = (page) => {
     setCurrentPage(page);
-    setSelectedMarket(null);
+    setSelectedMarketId(null);
   };
 
   // Show login if no session
@@ -849,7 +1229,12 @@ function App() {
   return (
     <SessionCtx.Provider value={sessionValue}>
       <div className="app">
-        <Header currentPage={currentPage} onNavigate={handleNavigate} />
+        <Header 
+          currentPage={currentPage} 
+          onNavigate={handleNavigate}
+          onOpenCreate={() => setIsCreateModalOpen(true)}
+          createdTodayCount={userCreationsToday}
+        />
         <NavCategories currentPage={currentPage} onNavigate={handleNavigate} />
 
         {currentPage === 'acciones' ? (
@@ -861,7 +1246,7 @@ function App() {
               {selectedMarket ? (
                 <MarketDetail
                   market={selectedMarket}
-                  onBack={() => setSelectedMarket(null)}
+                  onBack={() => setSelectedMarketId(null)}
                   onVote={handleVote}
                 />
               ) : (
@@ -869,10 +1254,16 @@ function App() {
                   <HeroMarket 
                     market={markets[0]} 
                     onVote={handleVote} 
-                    onClick={setSelectedMarket} 
+                    onClick={(m) => setSelectedMarketId(m.id)} 
                   />
-                  <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 32, marginBottom: 16}}>
+                  <div className="markets-section-header">
                     <h2 className="section-title" style={{margin: 0}}>Todos los mercados</h2>
+                    <button 
+                      className="btn-secondary-create"
+                      onClick={() => setIsCreateModalOpen(true)}
+                    >
+                      <Plus size={16} /> Crear Votación ({Math.max(0, 2 - userCreationsToday)} disp.)
+                    </button>
                   </div>
                   <div className="markets-grid">
                     {markets.slice(1).map(market => (
@@ -880,7 +1271,7 @@ function App() {
                         key={market.id}
                         market={market}
                         onVote={handleVote}
-                        onClick={setSelectedMarket}
+                        onClick={(m) => setSelectedMarketId(m.id)}
                       />
                     ))}
                   </div>
@@ -889,6 +1280,13 @@ function App() {
             </div>
           </main>
         )}
+
+        <CreateMarketModal
+          isOpen={isCreateModalOpen}
+          onClose={() => setIsCreateModalOpen(false)}
+          onCreate={handleCreateMarket}
+          createdTodayCount={userCreationsToday}
+        />
 
         {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
       </div>
