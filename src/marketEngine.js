@@ -300,13 +300,13 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     });
 
   return {
-    bros: allStocks.filter(s => s.type === 'bro').sort((a, b) => b.change - a.change),
-    hoes: allStocks.filter(s => s.type === 'hoe').sort((a, b) => b.change - a.change),
-    allStocks: allStocks.sort((a, b) => b.change - a.change),
-    stockLookup,
-    portfolios,
-    leaderboard,
-    userPortfolio: (currentUserName && portfolios[currentUserName]) ? portfolios[currentUserName] : { cash: accruedCash, netWorth: accruedCash, positions: {} },
-    resolvedMarkets
+    bros: Array.isArray(allStocks) ? allStocks.filter(s => s.type === 'bro').sort((a, b) => b.change - a.change) : [],
+    hoes: Array.isArray(allStocks) ? allStocks.filter(s => s.type === 'hoe').sort((a, b) => b.change - a.change) : [],
+    allStocks: Array.isArray(allStocks) ? allStocks.sort((a, b) => b.change - a.change) : [],
+    stockLookup: stockLookup || {},
+    portfolios: portfolios || {},
+    leaderboard: Array.isArray(leaderboard) ? leaderboard : [],
+    userPortfolio: (currentUserName && portfolios && portfolios[currentUserName]) ? portfolios[currentUserName] : { cash: accruedCash, netWorth: accruedCash, positions: {} },
+    resolvedMarkets: resolvedMarkets || {}
   };
 }
