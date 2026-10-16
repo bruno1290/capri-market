@@ -306,7 +306,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     stockLookup,
     portfolios,
     leaderboard,
-    userPortfolio: currentUserName ? portfolios[currentUserName] : null,
+    userPortfolio: (currentUserName && portfolios[currentUserName]) ? portfolios[currentUserName] : { cash: accruedCash, netWorth: accruedCash, positions: {} },
     resolvedMarkets
   };
 }
