@@ -7,6 +7,7 @@ export const COST_PER_VOTE = 1;
 export const ADMIN_NAME = 'Gacela';
 export const STOCK_HYPE_LIMIT = 10; // free "inflate" clicks per person, no price cost, lifetime cap
 const PROBABILITY_DRIVER_WEIGHT = 1.5; // how hard poll-vote popularity moves a stock's price
+const INITIAL_STOCK_PRICE = 10; // ← CONSTANTE AÑADIDA PARA FORZAR EL PRECIO BASE DE $10
 
 function matchesFriendName(optionName, friendName) {
   if (!optionName || !friendName) return false;
@@ -19,7 +20,7 @@ function matchesHoeTicker(optionName, ticker) {
   return clean === ticker || clean.includes(ticker);
 }
 
-// Acciones BROS y HOES base (Asegúrate de que BROS y HOES tengan un .id único en tu data.js)
+// Acciones BROS y HOES base
 function getAccruedCash() {
   const launch = new Date(`${LAUNCH_DATE}T00:00:00`);
   const now = new Date();
@@ -33,18 +34,19 @@ function getAccruedCash() {
 export function computeMarketEngine(votes = [], currentUserName = null) {
   const accruedCash = getAccruedCash();
 
-  // 1. Inicialización segura de mercados
+  // 1. Inicialización segura de mercados (Forzando precio base a 10)
   const brosMap = {};
   (BROS || []).forEach(b => {
     brosMap[b.id] = {
       ...b,
-      price: Number(b.basePrice || b.price) || 1,
+      price: INITIAL_STOCK_PRICE,
+      basePrice: INITIAL_STOCK_PRICE,
       change: 0,
       votes: 0,
       buyVolume: 0,
       sellVolume: 0,
       tradesCount: 0,
-      sparkline: b.sparkline && Array.isArray(b.sparkline) ? [...b.sparkline] : [Number(b.basePrice || b.price) || 1]
+      sparkline: [INITIAL_STOCK_PRICE] // Reiniciamos el gráfico para que parta de 10
     };
   });
 
@@ -52,13 +54,14 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   (HOES || []).forEach(h => {
     hoesMap[h.id] = {
       ...h,
-      price: Number(h.basePrice || h.price) || 1,
+      price: INITIAL_STOCK_PRICE,
+      basePrice: INITIAL_STOCK_PRICE,
       change: 0,
       votes: 0,
       buyVolume: 0,
       sellVolume: 0,
       tradesCount: 0,
-      sparkline: h.sparkline && Array.isArray(h.sparkline) ? [...h.sparkline] : [Number(h.basePrice || h.price) || 1]
+      sparkline: [INITIAL_STOCK_PRICE] // Reiniciamos el gráfico para que parta de 10
     };
   });
 
@@ -209,7 +212,9 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
           stock.sellVolume += amount;
           const pct = (amount / 10) * sellSens;
           const dip = +(stock.price * pct).toFixed(2);
-          stock.price = Math.max(1.0, +(stock.price - dip).toFixed(2)); // Piso de $1.0
+
+          // Importante: No dejar que el precio baje de 1.0
+          stock.price = Math.max(1.0, +(stock.price - dip).toFixed(2));
 
           portfolios[voter].cash = +(portfolios[voter].cash + amount).toFixed(2);
           const remainingShares = Math.max(0, +(h.shares - shares).toFixed(4));
@@ -239,7 +244,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     const share = totalPollVotes > 0 ? count / totalPollVotes : baselineShare;
     const deviation = baselineShare > 0 ? (share - baselineShare) / baselineShare : 0;
     const multiplier = Math.max(0.3, Math.min(3, 1 + PROBABILITY_DRIVER_WEIGHT * deviation));
-    stock.price = Math.max(1.0, +(stock.price * multiplier).toFixed(2));
+    stock.price = Math.max(1.0, +(stock.price * multiplier).toFixed(2)); // Piso de 1.0
     stock.pollShare = +(share * 100).toFixed(1);
     stock.sparkline.push(stock.price);
     if (stock.sparkline.length > 20) stock.sparkline.shift();
@@ -259,90 +264,10 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
 
   // 6. Consolidación de Resultados
   const allStocksList = [...Object.values(brosMap), ...Object.values(hoesMap)].map(s => {
-    const base = Number(s.basePrice || s.price) || 1;
+    const base = INITIAL_STOCK_PRICE;
     const change = +(((s.price - base) / base) * 100).toFixed(1);
     return { ...s, change };
   });
 
   const finalBros = allStocksList.filter(s => s.id.startsWith('bro'));
-  const finalHoes = allStocksList.filter(s => s.id.startsWith('hoe'));
-  const stockLookup = Object.fromEntries(allStocksList.map(s => [s.id, s]));
-
-  // 7. Enriquecer carteras y Leaderboard
-  const enrichedPortfolios = Object.entries(portfolios).map(([name, p]) => {
-    let stocksValue = 0;
-    const detailedPositions = [];
-
-    Object.entries(p.holdings).forEach(([stockId, holding]) => {
-      if (holding.shares > 0.0001) {
-        const stock = stockLookup[stockId];
-        if (stock) {
-          const currentValue = +(holding.shares * stock.price).toFixed(2);
-          stocksValue += currentValue;
-          const pnl = +(currentValue - holding.totalInvested).toFixed(2);
-          const pnlPercent = holding.totalInvested > 0 ? +((pnl / holding.totalInvested) * 100).toFixed(1) : 0;
-
-          detailedPositions.push({
-            stockId,
-            stock,
-            shares: holding.shares,
-            totalInvested: holding.totalInvested,
-            currentValue,
-            pnl,
-            pnlPercent,
-            avgBuyPrice: +(holding.totalInvested / holding.shares).toFixed(2)
-          });
-        }
-      }
-    });
-
-    stocksValue = +stocksValue.toFixed(2);
-    const netWorth = +(p.cash + stocksValue).toFixed(2);
-    const totalProfit = +(netWorth - accruedCash).toFixed(2);
-    const totalProfitPercent = +((totalProfit / accruedCash) * 100).toFixed(1);
-
-    return { ...p, stocksValue, netWorth, totalProfit, totalProfitPercent, positions: detailedPositions };
-  });
-
-  const leaderboard = [...enrichedPortfolios].sort((a, b) => b.netWorth - a.netWorth).map((item, index) => {
-    let tier = 'Trader';
-    let badge = '💼';
-    if (index === 0 && item.totalProfit > 0) { tier = 'Lobo de Capri 👑'; badge = '🥇'; }
-    else if (index === 1 && item.totalProfit > 0) { tier = 'Ballena Financiera 🐋'; badge = '🥈'; }
-    else if (index === 2 && item.totalProfit > 0) { tier = 'Tiburón de Wall St 🦈'; badge = '🥉'; }
-    else if (item.totalProfit > 15) { tier = 'En Ganancias 🚀'; badge = '🔥'; }
-    else if (item.totalProfit < -20) { tier = 'En Quiebra 📉'; badge = '💀'; }
-
-    return { ...item, rank: index + 1, tier, badge };
-  });
-
-  // 8. Portafolio del usuario actual
-  const userPortfolio = enrichedPortfolios.find(p => p.name === currentUserName) || {
-    name: currentUserName || 'Invitado',
-    cash: accruedCash,
-    stocksValue: 0,
-    netWorth: accruedCash,
-    totalProfit: 0,
-    totalProfitPercent: 0,
-    positions: [],
-    tradesCount: 0,
-    pollVotesCount: 0
-  };
-
-  // Cálculo de votos dinámico basado en efectivo disponible
-  userPortfolio.votesRemainingToday = Math.floor(userPortfolio.cash / COST_PER_VOTE);
-
-  const hypeClicksUsed = hypeClicks[currentUserName] || 0;
-  userPortfolio.hypeClicksUsed = hypeClicksUsed;
-  userPortfolio.hypeClicksRemaining = Math.max(0, STOCK_HYPE_LIMIT - hypeClicksUsed);
-
-  return {
-    bros: finalBros,
-    hoes: finalHoes,
-    allStocks: allStocksList,
-    leaderboard,
-    userPortfolio,
-    stockLookup,
-    resolvedMarkets
-  };
-}
+  const finalHo
