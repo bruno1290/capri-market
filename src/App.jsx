@@ -13,7 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
-import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE } from './marketEngine';
+import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE, ADMIN_NAME } from './marketEngine';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -1029,6 +1029,7 @@ function AccionesPage({ marketEngineData, onTrade, onStockVote }) {
 /* ── Market Card ────────────────────────────────────────── */
 function MarketCard({ market, onVote, onClick }) {
   const calculatedOptions = calculateOdds(market.options).slice(0, 2);
+  const resolution = market.resolution;
 
   return (
     <div className="market-card" onClick={() => onClick(market)}>
@@ -1037,6 +1038,7 @@ function MarketCard({ market, onVote, onClick }) {
         <div className="card-title">
           {market.title}
           {market.author && <span className="market-author-tag">Por {market.author}</span>}
+          {resolution && <span className="market-resolved-tag">🏆 Resuelta: {resolution.winningOption}</span>}
         </div>
       </div>
       <div className="card-options">
@@ -1045,15 +1047,17 @@ function MarketCard({ market, onVote, onClick }) {
             <div className="option-name">{opt.name}</div>
             <div className="option-actions">
               <span className="option-prob">{opt.percentage}</span>
-              <button
-                className={`btn-vote ${market.options.length === 2 ? (i === 0 ? 'yes' : 'no') : 'buy'}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onVote(market.id, opt.name);
-                }}
-              >
-                {market.options.length === 2 ? (i === 0 ? 'Sí' : 'No') : '$1'}
-              </button>
+              {!resolution && (
+                <button
+                  className={`btn-vote ${market.options.length === 2 ? (i === 0 ? 'yes' : 'no') : 'buy'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onVote(market.id, opt.name);
+                  }}
+                >
+                  {market.options.length === 2 ? (i === 0 ? 'Sí' : 'No') : '$1'}
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -1079,6 +1083,7 @@ function HeroMarket({ market, onVote, onClick }) {
 
   const calculatedOptions = calculateOdds(market.options).slice(0, 4); // Top 4 for display
   const isBinary = market.options.length === 2;
+  const resolution = market.resolution;
 
   // Render chart from real history
   const labels = market.history.map(h => h.label);
@@ -1128,22 +1133,28 @@ function HeroMarket({ market, onVote, onClick }) {
                 <span className="hero-option-prob">{opt.percentage}</span>
               </div>
               <div className="hero-option-name" style={{color: colors[i % colors.length]}}>
-                ● {opt.name}
+                ● {opt.name} {resolution?.winningOption === opt.name && '🏆'}
               </div>
-              <button
-                className={`btn-vote ${isBinary ? (i === 0 ? 'yes' : 'no') : 'buy'}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onVote(market.id, opt.name);
-                }}
-              >
-                {isBinary ? (i === 0 ? 'Sí' : 'No') : 'Comprar'} · $1
-              </button>
+              {!resolution && (
+                <button
+                  className={`btn-vote ${isBinary ? (i === 0 ? 'yes' : 'no') : 'buy'}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onVote(market.id, opt.name);
+                  }}
+                >
+                  {isBinary ? (i === 0 ? 'Sí' : 'No') : 'Comprar'} · $1
+                </button>
+              )}
             </div>
           ))}
-          
+
           <div className="hero-market-footer">
-            <span className="flex-center"><img src="https://ui-avatars.com/api/?name=Capri&background=random&rounded=true" width="20" height="20" alt="avatar"/> Capri Admin</span>
+            {resolution ? (
+              <span className="flex-center">🏆 Resuelta: {resolution.winningOption}</span>
+            ) : (
+              <span className="flex-center"><img src="https://ui-avatars.com/api/?name=Capri&background=random&rounded=true" width="20" height="20" alt="avatar"/> Capri Admin</span>
+            )}
             <span style={{color: 'var(--text-secondary)'}}>{market.volume} Vol</span>
           </div>
         </div>
@@ -1157,9 +1168,11 @@ function HeroMarket({ market, onVote, onClick }) {
 }
 
 /* ── Market Detail ──────────────────────────────────────── */
-function MarketDetail({ market, onVote, onBack }) {
+function MarketDetail({ market, onVote, onBack, isAdmin, onResolve }) {
+  const [pickedWinner, setPickedWinner] = useState('');
   const calculatedOptions = calculateOdds(market.options);
   const colors = ['#1d9bf0', '#00ba7c', '#f91880', '#fbbf24', '#8b5cf6'];
+  const resolution = market.resolution;
 
   const labels = market.history.map(h => h.label);
   const datasets = calculatedOptions.slice(0, 3).map((opt, i) => ({
@@ -1204,34 +1217,78 @@ function MarketDetail({ market, onVote, onBack }) {
         <Line data={chartData} options={options} />
       </div>
 
+      {resolution && (
+        <div className="market-resolution-banner">
+          🏆 Votación resuelta: ganó <strong>"{resolution.winningOption}"</strong>
+          {resolution.winnersCount > 0 ? (
+            <> — se repartieron <strong>${resolution.pot}</strong> entre {resolution.winnersCount} ganador{resolution.winnersCount === 1 ? '' : 'es'} (${resolution.payoutPerVote} c/u)</>
+          ) : (
+            <> — nadie votó la opción ganadora, no hubo pagos</>
+          )}
+        </div>
+      )}
+
       <h3 style={{ marginBottom: '16px', fontSize: '20px' }}>Opciones</h3>
       <div className="detail-options-grid">
-        {calculatedOptions.map((opt, i) => (
-          <div className="detail-option-card" key={i}>
-            <div className="detail-option-header">
-              <div className="avatar" style={{background: colors[i % colors.length]}}>{opt.name.charAt(0)}</div>
-              <div className="detail-option-name">{opt.name}</div>
-            </div>
-            <div className="detail-option-stats">
-              <div className="stat-box">
-                <span className="stat-label">Probabilidad</span>
-                <span className="stat-value" style={{ color: colors[i % colors.length] }}>{opt.percentage}</span>
+        {calculatedOptions.map((opt, i) => {
+          const isWinner = resolution && resolution.winningOption === opt.name;
+          return (
+            <div className="detail-option-card" key={i} style={resolution ? { opacity: isWinner ? 1 : 0.5 } : undefined}>
+              <div className="detail-option-header">
+                <div className="avatar" style={{background: colors[i % colors.length]}}>{opt.name.charAt(0)}</div>
+                <div className="detail-option-name">{opt.name} {isWinner && '🏆'}</div>
               </div>
-              <div className="stat-box">
-                <span className="stat-label">Pago</span>
-                <span className="stat-value">{opt.payout}x</span>
+              <div className="detail-option-stats">
+                <div className="stat-box">
+                  <span className="stat-label">Probabilidad</span>
+                  <span className="stat-value" style={{ color: colors[i % colors.length] }}>{opt.percentage}</span>
+                </div>
+                <div className="stat-box">
+                  <span className="stat-label">Pago</span>
+                  <span className="stat-value">{opt.payout}x</span>
+                </div>
               </div>
+              {!resolution && (
+                <button
+                  className="btn-buy-large"
+                  style={{background: colors[i % colors.length]}}
+                  onClick={() => onVote(market.id, opt.name)}
+                >
+                  Comprar {opt.name} · $1
+                </button>
+              )}
             </div>
-            <button
-              className="btn-buy-large"
-              style={{background: colors[i % colors.length]}}
-              onClick={() => onVote(market.id, opt.name)}
-            >
-              Comprar {opt.name} · $1
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
+
+      {isAdmin && !resolution && (
+        <div className="admin-resolve-panel">
+          <h3 style={{ fontSize: '16px', marginBottom: '12px' }}>⚙️ Admin: Resolver votación</h3>
+          <select
+            className="admin-resolve-select"
+            value={pickedWinner}
+            onChange={(e) => setPickedWinner(e.target.value)}
+          >
+            <option value="">Elegir opción ganadora...</option>
+            {market.options.map((opt) => (
+              <option key={opt.name} value={opt.name}>{opt.name}</option>
+            ))}
+          </select>
+          <button
+            className="btn-buy-large"
+            style={{ background: '#1d9bf0', marginTop: '8px' }}
+            disabled={!pickedWinner}
+            onClick={() => {
+              if (window.confirm(`¿Confirmás que "${pickedWinner}" ganó esta votación? Esta acción es irreversible y pagará a los ganadores.`)) {
+                onResolve(market.id, pickedWinner);
+              }
+            }}
+          >
+            Resolver votación
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1544,6 +1601,10 @@ function App() {
     ).length;
   }, [votes, session?.name, todayKey]);
 
+  const marketEngineData = useMemo(() => {
+    return computeMarketEngine(votes, session?.name);
+  }, [votes, session?.name]);
+
   const markets = useMemo(() => {
     const baseMarkets = JSON.parse(JSON.stringify(INITIAL_MARKETS));
 
@@ -1577,9 +1638,9 @@ function App() {
           opt.shares += 10;
           const newCalculated = calculateOdds(m.options);
           const dateObj = new Date(vote.created_at);
-          const newDataPoint = { 
-            label: isNaN(dateObj.getTime()) ? 'Ahora' : dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}), 
-            data: {} 
+          const newDataPoint = {
+            label: isNaN(dateObj.getTime()) ? 'Ahora' : dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+            data: {}
           };
           newCalculated.forEach(o => newDataPoint.data[o.name] = Math.round(o.prob * 100));
           m.history.push(newDataPoint);
@@ -1588,19 +1649,22 @@ function App() {
       }
     });
 
+    // Marcar los mercados ya resueltos por el admin
+    baseMarkets.forEach(m => {
+      const resolution = marketEngineData.resolvedMarkets[String(m.id)];
+      if (resolution) m.resolution = resolution;
+    });
+
     return baseMarkets;
-  }, [votes]);
+  }, [votes, marketEngineData.resolvedMarkets]);
 
   const selectedMarket = useMemo(() => {
     if (!selectedMarketId) return null;
     return markets.find(m => m.id === selectedMarketId) || null;
   }, [markets, selectedMarketId]);
 
-  const marketEngineData = useMemo(() => {
-    return computeMarketEngine(votes, session?.name);
-  }, [votes, session?.name]);
-
   const { userPortfolio, stockLookup } = marketEngineData;
+  const isAdmin = session?.name === ADMIN_NAME;
 
   const handleLogin = useCallback((name) => {
     const newSession = { name, day: getTodayKey(), spent: 0 };
@@ -1614,14 +1678,20 @@ function App() {
   }, []);
 
   const handleVote = useCallback((marketId, optionName) => {
+    const market = markets.find(m => String(m.id) === String(marketId));
+    if (market?.resolution) {
+      setToast({ message: 'Esta votación ya fue resuelta.', type: 'error' });
+      return;
+    }
+
     if (userPortfolio.cash < COST_PER_VOTE) {
-      setToast({ 
-        message: `¡Sin saldo suficiente! Te quedan $${userPortfolio.cash.toFixed(2)}. Vende acciones para conseguir efectivo.`, 
-        type: 'error' 
+      setToast({
+        message: `¡Sin saldo suficiente! Te quedan $${userPortfolio.cash.toFixed(2)}. Vende acciones para conseguir efectivo.`,
+        type: 'error'
       });
       return;
     }
-    
+
     const newVote = {
       id: generateUUID(),
       vote_type: 'market',
@@ -1636,7 +1706,31 @@ function App() {
       if (error) console.error("Error insertando voto:", error);
     });
     setToast({ message: `Apostaste $${COST_PER_VOTE} por "${optionName}"`, type: 'success' });
-  }, [session, userPortfolio.cash]);
+  }, [session, userPortfolio.cash, markets]);
+
+  const handleResolveMarket = useCallback((marketId, winningOption) => {
+    if (session?.name !== ADMIN_NAME) return;
+    const market = markets.find(m => String(m.id) === String(marketId));
+    if (market?.resolution) {
+      setToast({ message: 'Esta votación ya fue resuelta.', type: 'error' });
+      return;
+    }
+
+    const newEvent = {
+      id: generateUUID(),
+      vote_type: 'resolve_market',
+      target_id: String(marketId),
+      option_name: winningOption,
+      voter_name: session.name,
+      created_at: new Date().toISOString()
+    };
+
+    setVotes(prev => [...prev, newEvent]);
+    supabase.from('votes').insert(newEvent).then(({ error }) => {
+      if (error) console.error("Error resolviendo votación:", error);
+    });
+    setToast({ message: `🏆 Votación resuelta: ganó "${winningOption}". Pagos acreditados.`, type: 'success' });
+  }, [session, markets]);
 
   const handleTrade = useCallback(({ stockId, action, amount, shares, price }) => {
     if (!session?.name) return;
@@ -1799,6 +1893,8 @@ function App() {
                   market={selectedMarket}
                   onBack={() => setSelectedMarketId(null)}
                   onVote={handleVote}
+                  isAdmin={isAdmin}
+                  onResolve={handleResolveMarket}
                 />
               ) : (
                 <>

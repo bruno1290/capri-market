@@ -4,6 +4,7 @@ export const STARTING_CASH = 10;
 export const DAILY_ALLOWANCE = 10;
 export const LAUNCH_DATE = '2026-10-15';
 export const COST_PER_VOTE = 1;
+export const ADMIN_NAME = 'Gacela';
 
 // Every friend gets $10 on launch day, plus $10 more for each day that has passed since.
 function getAccruedCash() {
@@ -85,16 +86,26 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     return Object.values(hoesMap).find(h => clean === h.ticker || clean.includes(h.ticker));
   };
 
+  // Track every bet placed on each market so we can pay out winners on resolution
+  const marketBets = {}; // { [marketId]: { total: 0, voters: [{ voter, option }] } }
+  const resolvedMarkets = {}; // { [marketId]: { winningOption, pot, payoutPerVote, winnersCount, totalVotes, resolvedBy, resolvedAt } }
+
   // Process all events sequentially
   votes.forEach(evt => {
     const voter = evt.voter_name;
 
     // --- EVENT TYPE: Poll Vote in Market ---
     if (evt.vote_type === 'market') {
+      if (resolvedMarkets[evt.target_id]) return; // market already resolved, ignore late bets
+
       if (portfolios[voter]) {
         portfolios[voter].cash = Math.max(0, +(portfolios[voter].cash - COST_PER_VOTE).toFixed(2));
         portfolios[voter].pollVotesCount += 1;
       }
+
+      if (!marketBets[evt.target_id]) marketBets[evt.target_id] = { total: 0, voters: [] };
+      marketBets[evt.target_id].total += 1;
+      marketBets[evt.target_id].voters.push({ voter, option: evt.option_name });
 
       // 1. If voted option corresponds to a Bro
       const bro = findBroByName(evt.option_name);
@@ -118,6 +129,34 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
         hoe.sparkline.push(hoe.price);
         if (hoe.sparkline.length > 20) hoe.sparkline.shift();
       }
+    }
+
+    // --- EVENT TYPE: Admin resolves a market, paying out winners ---
+    else if (evt.vote_type === 'resolve_market') {
+      const marketId = evt.target_id;
+      if (resolvedMarkets[marketId]) return; // already resolved, ignore duplicates
+
+      const bets = marketBets[marketId] || { total: 0, voters: [] };
+      const winningOption = evt.option_name;
+      const winners = bets.voters.filter(v => v.option === winningOption);
+      const pot = +(bets.total * COST_PER_VOTE).toFixed(2);
+      const payoutPerVote = winners.length > 0 ? +(pot / winners.length).toFixed(2) : 0;
+
+      winners.forEach(w => {
+        if (portfolios[w.voter]) {
+          portfolios[w.voter].cash = +(portfolios[w.voter].cash + payoutPerVote).toFixed(2);
+        }
+      });
+
+      resolvedMarkets[marketId] = {
+        winningOption,
+        pot,
+        payoutPerVote,
+        winnersCount: winners.length,
+        totalVotes: bets.total,
+        resolvedBy: evt.voter_name,
+        resolvedAt: evt.created_at
+      };
     }
 
     // --- EVENT TYPE: Direct Stock Vote ---
@@ -295,6 +334,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     allStocks: allStocksList,
     leaderboard,
     userPortfolio,
-    stockLookup
+    stockLookup,
+    resolvedMarkets
   };
 }

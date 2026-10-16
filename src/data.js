@@ -71,7 +71,7 @@ export const INITIAL_MARKETS = [
     emoji: "🍔",
     volume: "$24.5K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 100) + 10 }))
+    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 2,
@@ -80,7 +80,7 @@ export const INITIAL_MARKETS = [
     emoji: "🥴",
     volume: "$12.5K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 100) + 10 }))
+    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 5,
@@ -89,7 +89,7 @@ export const INITIAL_MARKETS = [
     emoji: "🔥",
     volume: "$8K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 50) + 5 }))
+    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 6,
@@ -98,7 +98,7 @@ export const INITIAL_MARKETS = [
     emoji: "💀",
     volume: "$4.2K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 80) + 10 }))
+    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 7,
@@ -107,7 +107,7 @@ export const INITIAL_MARKETS = [
     emoji: "🍺",
     volume: "$6.8K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: Math.floor(Math.random() * 60) + 10 }))
+    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 8,
@@ -116,7 +116,7 @@ export const INITIAL_MARKETS = [
     emoji: "😈",
     volume: "$15K Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.filter(f => f !== "Mati").map(f => ({ name: f, shares: Math.floor(Math.random() * 70) + 5 }))
+    options: FRIENDS.filter(f => f !== "Mati").map(f => ({ name: f, shares: 50 }))
   },
   {
     id: 9,
@@ -126,8 +126,8 @@ export const INITIAL_MARKETS = [
     volume: "$9.3K Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Sí", shares: 65 },
-      { name: "No", shares: 35 }
+      { name: "Sí", shares: 50 },
+      { name: "No", shares: 50 }
     ]
   },
   {
@@ -138,8 +138,8 @@ export const INITIAL_MARKETS = [
     volume: "$5.5K Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Sí", shares: 85 },
-      { name: "No", shares: 40 }
+      { name: "Sí", shares: 50 },
+      { name: "No", shares: 50 }
     ]
   },
   {
@@ -150,8 +150,8 @@ export const INITIAL_MARKETS = [
     volume: "$7.1K Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Pescan a los amigos", shares: 30 },
-      { name: "Se van con las alternas", shares: 90 }
+      { name: "Pescan a los amigos", shares: 50 },
+      { name: "Se van con las alternas", shares: 50 }
     ]
   }
 ].map((market, idx) => ({
