@@ -1,13 +1,25 @@
 import { FRIENDS, BROS, HOES } from './data';
 
-export const STARTING_CASH = 100;
+export const STARTING_CASH = 10;
+export const DAILY_ALLOWANCE = 10;
+export const LAUNCH_DATE = '2026-10-15';
 export const COST_PER_VOTE = 1;
+
+// Every friend gets $10 on launch day, plus $10 more for each day that has passed since.
+function getAccruedCash() {
+  const launch = new Date(`${LAUNCH_DATE}T00:00:00`);
+  const now = new Date();
+  const daysElapsed = Math.max(0, Math.floor((now - launch) / (1000 * 60 * 60 * 24)));
+  return STARTING_CASH + daysElapsed * DAILY_ALLOWANCE;
+}
 
 /**
  * Computes live stock prices, user holdings, and friend leaderboard
  * based on all recorded events in Supabase (votes table).
  */
 export function computeMarketEngine(votes = [], currentUserName = null) {
+  const accruedCash = getAccruedCash();
+
   // 1. Create a clean map of base stocks
   const brosMap = {};
   BROS.forEach(b => {
@@ -42,7 +54,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   FRIENDS.forEach(friend => {
     portfolios[friend] = {
       name: friend,
-      cash: STARTING_CASH,
+      cash: accruedCash,
       holdings: {}, // { [stockId]: { shares: 0, totalInvested: 0 } }
       tradesCount: 0,
       pollVotesCount: 0
@@ -53,7 +65,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   if (currentUserName && !portfolios[currentUserName]) {
     portfolios[currentUserName] = {
       name: currentUserName,
-      cash: STARTING_CASH,
+      cash: accruedCash,
       holdings: {},
       tradesCount: 0,
       pollVotesCount: 0
@@ -233,8 +245,8 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
 
     stocksValue = +stocksValue.toFixed(2);
     const netWorth = +(p.cash + stocksValue).toFixed(2);
-    const totalProfit = +(netWorth - STARTING_CASH).toFixed(2);
-    const totalProfitPercent = +((totalProfit / STARTING_CASH) * 100).toFixed(1);
+    const totalProfit = +(netWorth - accruedCash).toFixed(2);
+    const totalProfitPercent = +((totalProfit / accruedCash) * 100).toFixed(1);
 
     return {
       ...p,
@@ -267,9 +279,9 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   // Current user's specific portfolio
   const userPortfolio = enrichedPortfolios.find(p => p.name === currentUserName) || {
     name: currentUserName || 'Invitado',
-    cash: STARTING_CASH,
+    cash: accruedCash,
     stocksValue: 0,
-    netWorth: STARTING_CASH,
+    netWorth: accruedCash,
     totalProfit: 0,
     totalProfitPercent: 0,
     positions: [],

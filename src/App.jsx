@@ -13,7 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
-import { computeMarketEngine, STARTING_CASH, COST_PER_VOTE } from './marketEngine';
+import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE } from './marketEngine';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -31,7 +31,7 @@ ChartJS.register(
 /* ═══════════════════════════════════════════════════════════
    USER SESSION SYSTEM
    - Each friend selects their name to "log in"
-   - $100 starting capital for stocks & markets
+   - $10 starting capital for stocks & markets, +$10 more each day
    - Each vote costs $1
    - Real-time cloud sync via Supabase
    ═══════════════════════════════════════════════════════════ */
@@ -117,7 +117,7 @@ function LoginScreen({ onLogin }) {
         </div>
         <p className="login-subtitle">Selecciona tu nombre para entrar al mercado</p>
         <p className="login-budget-info">
-          <DollarSign size={16} /> Recibes <strong>${STARTING_CASH}</strong> de capital para operar en bolsa y votar
+          <DollarSign size={16} /> Recibes <strong>${STARTING_CASH}</strong> de capital para operar en bolsa y votar, más <strong>${DAILY_ALLOWANCE}</strong> extra cada día
         </p>
         <div className="login-grid">
           {FRIENDS.map((name) => (
