@@ -1,7 +1,7 @@
 import { INITIAL_MARKETS, BROS, HOES } from './data';
 
-export const STARTING_CASH = 10;
-export const DAILY_ALLOWANCE = 10;
+export const STARTING_CASH = 30;
+export const DAILY_ALLOWANCE = 30;
 export const COST_PER_VOTE = 1; // Ya no se usa para encuestas, pero lo dejamos por si acaso
 export const ADMIN_NAME = "Gacela";
 export const DAILY_VOTE_LIMIT = 5;
@@ -61,7 +61,7 @@ export const computeMarketEngine = (votes, currentUserName) => {
         // Liquidez inicial para Polymarket: 20 "dólares" a cada opción
         const polymarketOptions = m.options.map(opt => ({
           ...opt,
-          liquidity: 20
+          liquidity: 40
         }));
         customMarkets[m.id] = { ...m, options: polymarketOptions };
       } catch (e) {
