@@ -13,7 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
-import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE, ADMIN_NAME } from './marketEngine';
+import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE, ADMIN_NAME, DAILY_VOTE_LIMIT } from './marketEngine';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -178,6 +178,7 @@ function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0, 
   const profit = userPortfolio?.totalProfit ?? 0;
   const profitPercent = userPortfolio?.totalProfitPercent ?? 0;
   const isUp = profit >= 0;
+  const votesRemaining = userPortfolio?.votesRemainingToday ?? DAILY_VOTE_LIMIT;
 
   return (
     <header className="header">
@@ -221,6 +222,11 @@ function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0, 
           <div className="financial-item">
             <span className="financial-label">Efectivo</span>
             <span className="financial-value">${cash.toFixed(2)}</span>
+          </div>
+          <div className="financial-divider" />
+          <div className="financial-item">
+            <span className="financial-label">Votos hoy</span>
+            <span className={`financial-value ${votesRemaining <= 0 ? 'down' : ''}`}>{votesRemaining}/{DAILY_VOTE_LIMIT}</span>
           </div>
         </div>
 
@@ -1684,6 +1690,14 @@ function App() {
       return;
     }
 
+    if (userPortfolio.votesRemainingToday <= 0) {
+      setToast({
+        message: `¡Sin votos hoy! Tenés ${DAILY_VOTE_LIMIT} votos por día, mañana se renuevan.`,
+        type: 'error'
+      });
+      return;
+    }
+
     if (userPortfolio.cash < COST_PER_VOTE) {
       setToast({
         message: `¡Sin saldo suficiente! Te quedan $${userPortfolio.cash.toFixed(2)}. Vende acciones para conseguir efectivo.`,
@@ -1705,8 +1719,8 @@ function App() {
     supabase.from('votes').insert(newVote).then(({error}) => {
       if (error) console.error("Error insertando voto:", error);
     });
-    setToast({ message: `Apostaste $${COST_PER_VOTE} por "${optionName}"`, type: 'success' });
-  }, [session, userPortfolio.cash, markets]);
+    setToast({ message: `Apostaste $${COST_PER_VOTE} por "${optionName}" (${userPortfolio.votesRemainingToday - 1} votos restantes hoy)`, type: 'success' });
+  }, [session, userPortfolio.cash, userPortfolio.votesRemainingToday, markets]);
 
   const handleResolveMarket = useCallback((marketId, winningOption) => {
     if (session?.name !== ADMIN_NAME) return;

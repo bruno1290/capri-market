@@ -5,6 +5,11 @@ export const DAILY_ALLOWANCE = 10;
 export const LAUNCH_DATE = '2026-10-15';
 export const COST_PER_VOTE = 1;
 export const ADMIN_NAME = 'Gacela';
+export const DAILY_VOTE_LIMIT = 5;
+
+function getTodayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 // Every friend gets $10 on launch day, plus $10 more for each day that has passed since.
 function getAccruedCash() {
@@ -20,6 +25,7 @@ function getAccruedCash() {
  */
 export function computeMarketEngine(votes = [], currentUserName = null) {
   const accruedCash = getAccruedCash();
+  const todayKey = getTodayKey();
 
   // 1. Create a clean map of base stocks
   const brosMap = {};
@@ -73,22 +79,11 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     };
   }
 
-  // Helper to find stock by name or initials
-  const findBroByName = (name) => {
-    if (!name) return null;
-    const clean = String(name).trim().toLowerCase();
-    return Object.values(brosMap).find(b => b.name.toLowerCase() === clean);
-  };
-
-  const findHoeByToken = (text) => {
-    if (!text) return null;
-    const clean = String(text).trim().toUpperCase();
-    return Object.values(hoesMap).find(h => clean === h.ticker || clean.includes(h.ticker));
-  };
 
   // Track every bet placed on each market so we can pay out winners on resolution
   const marketBets = {}; // { [marketId]: { total: 0, voters: [{ voter, option }] } }
   const resolvedMarkets = {}; // { [marketId]: { winningOption, pot, payoutPerVote, winnersCount, totalVotes, resolvedBy, resolvedAt } }
+  const votesToday = {}; // { [voter]: count } — only counts votes cast today, resets naturally each day
 
   // Process all events sequentially
   votes.forEach(evt => {
@@ -98,6 +93,13 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     if (evt.vote_type === 'market') {
       if (resolvedMarkets[evt.target_id]) return; // market already resolved, ignore late bets
 
+      const isToday = evt.created_at && String(evt.created_at).slice(0, 10) === todayKey;
+      if (isToday) {
+        votesToday[voter] = votesToday[voter] || 0;
+        if (votesToday[voter] >= DAILY_VOTE_LIMIT) return; // daily vote limit reached, ignore
+        votesToday[voter] += 1;
+      }
+
       if (portfolios[voter]) {
         portfolios[voter].cash = Math.max(0, +(portfolios[voter].cash - COST_PER_VOTE).toFixed(2));
         portfolios[voter].pollVotesCount += 1;
@@ -106,29 +108,8 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
       if (!marketBets[evt.target_id]) marketBets[evt.target_id] = { total: 0, voters: [] };
       marketBets[evt.target_id].total += 1;
       marketBets[evt.target_id].voters.push({ voter, option: evt.option_name });
-
-      // 1. If voted option corresponds to a Bro
-      const bro = findBroByName(evt.option_name);
-      if (bro) {
-        bro.votes += 1;
-        // Each vote bumps bro price by 3.5% (approx +$0.60 to +$1.00)
-        const bump = +(bro.price * 0.035).toFixed(2);
-        bro.price = +(bro.price + Math.max(0.35, bump)).toFixed(2);
-        bro.sparkline.push(bro.price);
-        if (bro.sparkline.length > 20) bro.sparkline.shift();
-      }
-
-      // 2. If voted option or target relates to Hoes (e.g. AC, Chiang, alternas)
-      const optStr = String(evt.option_name || '');
-      const hoe = findHoeByToken(optStr);
-      if (hoe) {
-        hoe.votes += 1;
-        // Hoes high-volatility boost: +5.5%
-        const bump = +(hoe.price * 0.055).toFixed(2);
-        hoe.price = +(hoe.price + Math.max(0.50, bump)).toFixed(2);
-        hoe.sparkline.push(hoe.price);
-        if (hoe.sparkline.length > 20) hoe.sparkline.shift();
-      }
+      // Poll votes in a market only move that market's own odds — they no longer
+      // valorize Bro/Hoe stock prices. Stocks move only via 'stock' votes or trades.
     }
 
     // --- EVENT TYPE: Admin resolves a market, paying out winners ---
@@ -327,6 +308,10 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
     tradesCount: 0,
     pollVotesCount: 0
   };
+
+  const votesUsedToday = votesToday[currentUserName] || 0;
+  userPortfolio.votesUsedToday = votesUsedToday;
+  userPortfolio.votesRemainingToday = Math.max(0, DAILY_VOTE_LIMIT - votesUsedToday);
 
   return {
     bros: finalBros,
