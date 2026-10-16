@@ -6,6 +6,19 @@ export const LAUNCH_DATE = '2026-10-15';
 export const COST_PER_VOTE = 1;
 export const ADMIN_NAME = 'Gacela';
 export const DAILY_VOTE_LIMIT = 20;
+export const STOCK_HYPE_LIMIT = 10; // free "inflate" clicks per person, no price cost, lifetime cap
+const PROBABILITY_DRIVER_WEIGHT = 1.5; // how hard poll-vote popularity moves a stock's price
+
+function matchesFriendName(optionName, friendName) {
+  if (!optionName) return false;
+  return String(optionName).trim().toLowerCase() === String(friendName).trim().toLowerCase();
+}
+
+function matchesHoeTicker(optionName, ticker) {
+  if (!optionName) return false;
+  const clean = String(optionName).trim().toUpperCase();
+  return clean === ticker || clean.includes(ticker);
+}
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);
@@ -84,6 +97,7 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   const marketBets = {}; // { [marketId]: { total: 0, voters: [{ voter, option }] } }
   const resolvedMarkets = {}; // { [marketId]: { winningOption, pot, payoutPerVote, winnersCount, totalVotes, resolvedBy, resolvedAt } }
   const votesToday = {}; // { [voter]: count } — only counts votes cast today, resets naturally each day
+  const hypeClicks = {}; // { [voter]: count } — free stock-inflate clicks, lifetime cap
 
   // Process all events sequentially
   votes.forEach(evt => {
@@ -140,8 +154,12 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
       };
     }
 
-    // --- EVENT TYPE: Direct Stock Vote ---
+    // --- EVENT TYPE: Direct Stock Vote (free "inflate" click, capped per person) ---
     else if (evt.vote_type === 'stock') {
+      hypeClicks[voter] = hypeClicks[voter] || 0;
+      if (hypeClicks[voter] >= STOCK_HYPE_LIMIT) return; // lifetime limit reached, ignore
+      hypeClicks[voter] += 1;
+
       const stock = brosMap[evt.target_id] || hoesMap[evt.target_id];
       if (stock) {
         stock.votes += 1;
@@ -217,6 +235,33 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
         if (stock.sparkline.length > 20) stock.sparkline.shift();
       }
     }
+  });
+
+  // --- Driver #2: Poll-vote popularity (a friend who's heavily favored in the
+  // polls sees their stock rise; one who's falling behind sees it fall) ---
+  const allPollVotes = Object.values(marketBets).flatMap(mb => mb.voters);
+  const totalPollVotes = allPollVotes.length;
+
+  const applyProbabilityDriver = (stock, count, baselineShare) => {
+    const share = totalPollVotes > 0 ? count / totalPollVotes : baselineShare;
+    const deviation = baselineShare > 0 ? (share - baselineShare) / baselineShare : 0;
+    const multiplier = Math.max(0.3, Math.min(3, 1 + PROBABILITY_DRIVER_WEIGHT * deviation));
+    stock.price = Math.max(1.0, +(stock.price * multiplier).toFixed(2));
+    stock.pollShare = +(share * 100).toFixed(1);
+    stock.sparkline.push(stock.price);
+    if (stock.sparkline.length > 20) stock.sparkline.shift();
+  };
+
+  const broBaselineShare = 1 / (FRIENDS.length || 1);
+  Object.values(brosMap).forEach(bro => {
+    const count = allPollVotes.filter(v => matchesFriendName(v.option, bro.name)).length;
+    applyProbabilityDriver(bro, count, broBaselineShare);
+  });
+
+  const hoeBaselineShare = 1 / (HOES.length || 1);
+  Object.values(hoesMap).forEach(hoe => {
+    const count = allPollVotes.filter(v => matchesHoeTicker(v.option, hoe.ticker)).length;
+    applyProbabilityDriver(hoe, count, hoeBaselineShare);
   });
 
   // Calculate final change percentages for all stocks
@@ -312,6 +357,10 @@ export function computeMarketEngine(votes = [], currentUserName = null) {
   const votesUsedToday = votesToday[currentUserName] || 0;
   userPortfolio.votesUsedToday = votesUsedToday;
   userPortfolio.votesRemainingToday = Math.max(0, DAILY_VOTE_LIMIT - votesUsedToday);
+
+  const hypeClicksUsed = hypeClicks[currentUserName] || 0;
+  userPortfolio.hypeClicksUsed = hypeClicksUsed;
+  userPortfolio.hypeClicksRemaining = Math.max(0, STOCK_HYPE_LIMIT - hypeClicksUsed);
 
   return {
     bros: finalBros,

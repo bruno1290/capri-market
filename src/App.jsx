@@ -13,7 +13,7 @@ import {
 } from 'chart.js';
 import { Line } from 'react-chartjs-2';
 import { INITIAL_MARKETS, calculateOdds, FRIENDS, BROS, HOES } from './data';
-import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE, ADMIN_NAME, DAILY_VOTE_LIMIT } from './marketEngine';
+import { computeMarketEngine, STARTING_CASH, DAILY_ALLOWANCE, COST_PER_VOTE, ADMIN_NAME, DAILY_VOTE_LIMIT, STOCK_HYPE_LIMIT } from './marketEngine';
 import { supabase } from './supabase';
 import './index.css';
 
@@ -179,6 +179,7 @@ function Header({ currentPage, onNavigate, onOpenCreate, createdTodayCount = 0, 
   const profitPercent = userPortfolio?.totalProfitPercent ?? 0;
   const isUp = profit >= 0;
   const votesRemaining = userPortfolio?.votesRemainingToday ?? DAILY_VOTE_LIMIT;
+  const hypeRemaining = userPortfolio?.hypeClicksRemaining ?? STOCK_HYPE_LIMIT;
 
   return (
     <header className="header">
@@ -1792,6 +1793,13 @@ function App() {
 
   const handleStockDirectVote = useCallback((stockId) => {
     if (!session?.name) return;
+    if (userPortfolio.hypeClicksRemaining <= 0) {
+      setToast({
+        message: `¡Sin clicks para inflar! Ya usaste tus ${STOCK_HYPE_LIMIT} clicks gratis.`,
+        type: 'error'
+      });
+      return;
+    }
     const stock = stockLookup[stockId];
     const newVote = {
       id: generateUUID(),
@@ -1805,8 +1813,8 @@ function App() {
     supabase.from('votes').insert(newVote).then(({ error }) => {
       if (error) console.error("Error voting stock:", error);
     });
-    setToast({ message: `🔥 Voto enviado a ${stock?.ticker || 'Acción'} — precio subiendo!`, type: 'success' });
-  }, [session, stockLookup]);
+    setToast({ message: `🔥 Infliste a ${stock?.ticker || 'Acción'} (${userPortfolio.hypeClicksRemaining - 1}/${STOCK_HYPE_LIMIT} clicks restantes)`, type: 'success' });
+  }, [session, stockLookup, userPortfolio.hypeClicksRemaining]);
 
   const handleCreateMarket = useCallback(({ title, category, emoji, options }) => {
     if (userCreationsToday >= 2) {
