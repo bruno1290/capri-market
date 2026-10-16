@@ -25,109 +25,112 @@ export const calculateOdds = (options) => {
   })).sort((a, b) => b.prob - a.prob);
 };
 
-// Seeded pseudo-random for reproducible charts
-function seededRandom(seed) {
-  let s = seed;
-  return () => { s = (s * 16807) % 2147483647; return (s - 1) / 2147483646; };
-}
-
-// Generate realistic history for a market based on its current options
-function generateMarketHistory(options, seed, days = 7) {
+// Generar historial plano para los mercados al inicio (sin randoms)
+function generateFlatMarketHistory(options, days = 7) {
   const history = [];
-  const rng = seededRandom(seed);
-  
-  // Create variations of shares going backwards in time
-  let currentShares = options.map(o => o.shares);
-  
-  // We generate points backwards, then reverse
+  const total = options.reduce((sum, opt) => sum + opt.shares, 0);
+
   for (let i = days; i >= 0; i--) {
-    const total = currentShares.reduce((a, b) => a + b, 0);
     const point = {
       label: i === 0 ? 'Hoy' : `Hace ${i}d`,
       data: {}
     };
-    
-    options.forEach((opt, idx) => {
-      // Calculate percentage for this option at this point in time
-      point.data[opt.name] = total === 0 ? 0 : Math.round((currentShares[idx] / total) * 100);
-      
-      // Mutate shares for the *previous* day (so we subtract a random amount to simulate fewer shares in the past)
-      // This means as time goes forward (from past to present), shares increase
-      const change = Math.floor(rng() * (currentShares[idx] * 0.3)); // up to 30% change
-      currentShares[idx] = Math.max(1, currentShares[idx] - change);
+    options.forEach(opt => {
+      point.data[opt.name] = total === 0 ? 0 : Math.round((opt.shares / total) * 100);
     });
-    
     history.push(point);
   }
-  
   return history;
 }
+
+const INITIAL_SHARES = 10; // Todos parten con la misma probabilidad
 
 export const INITIAL_MARKETS = [
   {
     id: 1,
     title: "¿Quién come más en los 5 años?",
     category: "Tendencia",
-    emoji: "🍔",
-    volume: "$24.5K Vol.",
+    emoji: "👑",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
   },
   {
     id: 2,
     title: "¿Quién queda más borrado en los 5 años?",
     category: "Fiesta",
     emoji: "🥴",
-    volume: "$12.5K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
+  },
+  {
+    id: 3,
+    title: "¿El más borrado en el cumple de Gaspar?",
+    category: "Cumple Gaspar",
+    emoji: "🎂",
+    volume: "$0.0 Vol.",
+    endDate: "17 de Octubre",
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
+  },
+  {
+    id: 4,
+    title: "¿Gaspar se va de guaja en su cumple?",
+    category: "Cumple Gaspar",
+    emoji: "🤮",
+    volume: "$0.0 Vol.",
+    endDate: "17 de Octubre",
+    options: [
+      { name: "Sí, de guaja", shares: INITIAL_SHARES },
+      { name: "Sobrevive", shares: INITIAL_SHARES }
+    ]
   },
   {
     id: 5,
     title: "¿Quién se come a AC?",
     category: "Salseo",
     emoji: "🔥",
-    volume: "$8K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
   },
   {
     id: 6,
-    title: "¿Quién se come mina pololeando?",
+    title: "¿Quién se come una mina pololeando?",
     category: "Salseo",
     emoji: "💀",
-    volume: "$4.2K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
   },
   {
     id: 7,
     title: "¿Quién baja el pozo?",
     category: "Fiesta",
     emoji: "🍺",
-    volume: "$6.8K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.map(f => ({ name: f, shares: INITIAL_SHARES }))
   },
   {
     id: 8,
     title: "¿Quién le roba la mina a Mati?",
     category: "Salseo",
     emoji: "😈",
-    volume: "$15K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
-    options: FRIENDS.filter(f => f !== "Mati").map(f => ({ name: f, shares: 50 }))
+    options: FRIENDS.filter(f => f !== "Mati").map(f => ({ name: f, shares: INITIAL_SHARES }))
   },
   {
     id: 9,
     title: "¿Peshe se come a Chiang?",
     category: "Salseo",
     emoji: "👀",
-    volume: "$9.3K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Sí", shares: 50 },
-      { name: "No", shares: 50 }
+      { name: "Sí", shares: INITIAL_SHARES },
+      { name: "No", shares: INITIAL_SHARES }
     ]
   },
   {
@@ -135,11 +138,11 @@ export const INITIAL_MARKETS = [
     title: "¿Antonio López sigue hablando con la E?",
     category: "Salseo",
     emoji: "📱",
-    volume: "$5.5K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Sí", shares: 50 },
-      { name: "No", shares: 50 }
+      { name: "Sí", shares: INITIAL_SHARES },
+      { name: "No", shares: INITIAL_SHARES }
     ]
   },
   {
@@ -147,76 +150,66 @@ export const INITIAL_MARKETS = [
     title: "¿Pala y Mati pescarán a los amigos o se irán con las alternas?",
     category: "Random",
     emoji: "🤔",
-    volume: "$7.1K Vol.",
+    volume: "$0.0 Vol.",
     endDate: "17 de Octubre",
     options: [
-      { name: "Pescan a los amigos", shares: 50 },
-      { name: "Se van con las alternas", shares: 50 }
+      { name: "Pescan a los amigos", shares: INITIAL_SHARES },
+      { name: "Se van con las alternas", shares: INITIAL_SHARES }
     ]
   }
-].map((market, idx) => ({
+].map(market => ({
   ...market,
-  history: generateMarketHistory(market.options, idx * 99 + 7)
+  history: generateFlatMarketHistory(market.options)
 }));
 
 // ── Acciones ──────────────────────────────────────────────
-
-function generateSparkline(base, seed) {
-  const rng = seededRandom(seed);
-  const pts = [base];
-  for (let i = 1; i < 14; i++) {
-    const delta = (rng() - 0.45) * base * 0.06;
-    pts.push(Math.max(1, +(pts[i - 1] + delta).toFixed(2)));
-  }
-  return pts;
-}
+const INITIAL_STOCK_PRICE = 10;
+const FLAT_SPARKLINE = new Array(14).fill(INITIAL_STOCK_PRICE); // Gráfico inicial plano en $10
 
 export const BROS = FRIENDS.map((name, idx) => {
-  const base = +(14 + (idx * 3.7 + 5) % 15).toFixed(2);
-  const spark = generateSparkline(base, idx * 7 + 3);
-  const last = spark[spark.length - 1];
-  const change = +(((last - base) / base) * 100).toFixed(2);
   return {
     id: `bro-${idx}`,
     ticker: name.split(" ")[0].toUpperCase().slice(0, 4),
     name,
-    basePrice: base,
-    price: last,
-    change,
-    leverage: [10, 20, 25][idx % 3],
-    sparkline: spark,
-    votes: 0,
-    emoji: "🧑‍🤝‍🧑",
-    type: 'bro'
+    price: INITIAL_STOCK_PRICE,
+    basePrice: INITIAL_STOCK_PRICE,
+    change: 0,
+    leverage: [10, 20, 50][idx % 3], // Mantenemos el leverage variado por si lo usas en UI
+    sparkline: [...FLAT_SPARKLINE],
+    votes: 0, // Reseteado
+    emoji: "🧑‍🤝‍🧑"
   };
 });
 
 export const HOES_FULL = [
-  { initials: "AY", name: "AY", emoji: "💜" },
-  { initials: "AC", name: "AC", emoji: "🔥" },
-  { initials: "LB", name: "LB", emoji: "💅" },
-  { initials: "SB", name: "SB", emoji: "✨" },
-  { initials: "MO", name: "MO", emoji: "🌹" },
-  { initials: "NB", name: "NB", emoji: "💎" },
-  { initials: "FM", name: "FM", emoji: "🦋" }
+  { initials: "AY", emoji: "💜" },
+  { initials: "AC", emoji: "🔥" },
+  { initials: "LB", emoji: "💅" },
+  { initials: "SB", emoji: "✨" },
+  { initials: "MO", emoji: "🌹" },
+  { initials: "NB", emoji: "💎" },
+  { initials: "FM", emoji: "🦋" },
+  // Nuevas agregadas:
+  { initials: "SA", emoji: "🌸" },
+  { initials: "PG", emoji: "🍒" },
+  { initials: "JP", emoji: "🎀" },
+  { initials: "JE", emoji: "🌟" },
+  { initials: "CC", emoji: "🥂" }
 ];
 
+
+
 export const HOES = HOES_FULL.map((h, idx) => {
-  const base = +(11 + (idx * 4.1 + 3) % 14).toFixed(2);
-  const spark = generateSparkline(base, idx * 13 + 11);
-  const last = spark[spark.length - 1];
-  const change = +(((last - base) / base) * 100).toFixed(2);
   return {
     id: `hoe-${idx}`,
     ticker: h.initials,
-    name: h.name,
-    basePrice: base,
-    price: last,
-    change,
-    leverage: [25, 50][idx % 2],
-    sparkline: spark,
-    votes: 0,
-    emoji: h.emoji,
-    type: 'hoe'
+    name: h.initials,
+    price: INITIAL_STOCK_PRICE,
+    basePrice: INITIAL_STOCK_PRICE,
+    change: 0,
+    leverage: [20, 50][idx % 2],
+    sparkline: [...FLAT_SPARKLINE],
+    votes: 0, // Reseteado
+    emoji: h.emoji
   };
 });
