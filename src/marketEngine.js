@@ -5,7 +5,7 @@ export const DAILY_ALLOWANCE = 10;
 export const LAUNCH_DATE = '2026-10-15';
 export const COST_PER_VOTE = 1;
 export const ADMIN_NAME = 'Gacela';
-export const DAILY_VOTE_LIMIT = 5;
+export const DAILY_VOTE_LIMIT = 20;
 
 function getTodayKey() {
   return new Date().toISOString().slice(0, 10);

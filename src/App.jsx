@@ -117,7 +117,7 @@ function LoginScreen({ onLogin }) {
         </div>
         <p className="login-subtitle">Selecciona tu nombre para entrar al mercado</p>
         <p className="login-budget-info">
-          <DollarSign size={16} /> Recibes <strong>${STARTING_CASH}</strong> de capital para operar en bolsa y votar, más <strong>${DAILY_ALLOWANCE}</strong> extra cada día
+          <DollarSign size={16} /> Recibes <strong>${STARTING_CASH}</strong> de capital para operar en bolsa y votar, más <strong>${DAILY_ALLOWANCE}</strong> extra cada día, y <strong>{DAILY_VOTE_LIMIT} votos</strong> por día para las votaciones
         </p>
         <div className="login-grid">
           {FRIENDS.map((name) => (
@@ -359,10 +359,17 @@ function TradeModal({ stock, userPortfolio, isOpen, onClose, onTrade }) {
   const [amountStr, setAmountStr] = useState('10');
   const [submitting, setSubmitting] = useState(false);
 
+  // Default buy amount can't exceed what the user actually has, otherwise the
+  // modal opens already showing "Saldo insuficiente" even though they do have cash.
+  const defaultBuyAmount = (cash) => {
+    const safeCash = Math.max(0, cash || 0);
+    return String(Math.min(10, +safeCash.toFixed(2)));
+  };
+
   useEffect(() => {
     if (isOpen) {
       setAction('BUY');
-      setAmountStr('10');
+      setAmountStr(defaultBuyAmount(userPortfolio?.cash));
     }
   }, [isOpen, stock]);
 
@@ -386,7 +393,7 @@ function TradeModal({ stock, userPortfolio, isOpen, onClose, onTrade }) {
   const handleQuickChip = (val) => {
     if (action === 'BUY') {
       if (val === 'MAX') setAmountStr(String(Math.floor(availableCash)));
-      else setAmountStr(String(val));
+      else setAmountStr(String(Math.min(val, +availableCash.toFixed(2))));
     } else {
       if (val === 'ALL') setAmountStr(String(ownedValue));
       else if (val === 'HALF') setAmountStr(String(+(ownedValue * 0.5).toFixed(2)));
@@ -438,7 +445,7 @@ function TradeModal({ stock, userPortfolio, isOpen, onClose, onTrade }) {
         <div className="trade-tabs">
           <button
             className={`trade-tab-btn buy ${action === 'BUY' ? 'active' : ''}`}
-            onClick={() => { setAction('BUY'); setAmountStr('10'); }}
+            onClick={() => { setAction('BUY'); setAmountStr(defaultBuyAmount(availableCash)); }}
           >
             Comprar 🟢
           </button>
